@@ -205,7 +205,7 @@ impl<P: Property, N: ArrayLength<f64>> FixedExpansion<P, N> {
     /// using repeated `grow_expansion`s.
     fn expansion_sum<P2: Property, N2: ArrayLength<f64>>(
         &self,
-        other: FixedExpansion<P2, N2>,
+        other: &FixedExpansion<P2, N2>,
     ) -> FixedExpansion<<<P as Min<P2>>::Output as Property>::Weak, <N as Add<N2>>::Output>
         where
             P: Min<P2>,
@@ -482,10 +482,45 @@ mod tests {
     }
 
     #[test]
-    fn test_set_subexpression() {
+    fn test_set_subexpansion() {
         let mut exp = FixedExpansion::<NOver, U3>::new([0.0, 0.0, 0.0]);
         let sub = FixedExpansion::<NAdj, U2>::new([1.0, 2.0]);
         exp.set_subexpansion(&sub, 1);
         assert_eq!(exp.arr, [0.0, 1.0, 2.0].into());
+    }
+
+    #[test]
+    fn test_expansion_sum_zero() {
+        // One or more operands are zero
+        let exp1 = FixedExpansion::<NAdj, U1>::new([0.0]);
+        let exp2 = FixedExpansion::<NAdj, U2>::new([0.0, 0.0]);
+        let res = exp1.expansion_sum(&exp2);
+        assert_eq!(res.arr, [0.0, 0.0, 0.0].into());
+
+        let exp1 = FixedExpansion::<NAdj, U2>::new([1.0, e(1.0, 53)]);
+        let res = exp1.expansion_sum(&exp2);
+        assert_eq!(res.arr, [0.0, 0.0, 1.0, e(1.0, 53)].into());
+        let res = exp2.expansion_sum(&exp1);
+        assert_eq!(res.arr, [0.0, 0.0, 1.0, e(1.0, 53)].into());
+    }
+    
+    #[test]
+    fn test_expansion_sum_simple() {
+        let exp1 = FixedExpansion::<NAdj, U1>::new([1.0]);
+        let exp2 = FixedExpansion::<NAdj, U1>::new([2.0]);
+        let res = exp1.expansion_sum(&exp2);
+        assert_eq!(res.arr, [0.0, 3.0].into());
+        let res = exp2.expansion_sum(&exp1);
+        assert_eq!(res.arr, [0.0, 3.0].into());
+    }
+
+    #[test]
+    fn test_expansion_sum_complex() {
+        let exp1 = FixedExpansion::<NAdj, U2>::new([1.0, e(1.0, 53)]);
+        let exp2 = FixedExpansion::<NAdj, U2>::new([e(1.0, 53), e(1.0, 106)]);
+        let res = exp1.expansion_sum(&exp2);
+        assert_eq!(res.arr, [1.0, 0.0, 0.0, e(1.0, 54) + e(1.0, 106)].into());
+        let res = exp2.expansion_sum(&exp1);
+        assert_eq!(res.arr, [1.0, 0.0, 0.0, e(1.0, 54) + e(1.0, 106)].into());
     }
 }
