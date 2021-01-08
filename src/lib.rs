@@ -3,13 +3,13 @@
 //! Fast Robust Geometric Predicates](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf)
 //! in a more Rusty style.
 //! Double precision only.
-
+#[macro_use]
 extern crate typenum;
 #[macro_use]
 extern crate generic_array;
 
 use generic_array::{sequence::Lengthen, ArrayLength, GenericArray};
-use std::ops::{Add, Mul, Index, RangeTo};
+use std::ops::{Add, Div, Index, Mul, RangeTo};
 use std::{marker::PhantomData, mem::MaybeUninit};
 use typenum::{Greater, Unsigned, U0, U1, U2};
 
@@ -31,11 +31,6 @@ trait Property: Default {
     type Weak: Property;
 }
 
-/// Takes the weaker of two properties
-trait Min<P: Property> {
-    type Output: Property;
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct NAdj;
 impl Property for NAdj {
@@ -55,6 +50,11 @@ impl StronglyNonoverlapping for SNOver {}
 struct NOver;
 impl Property for NOver {
     type Weak = NOver;
+}
+
+/// Takes the weaker of two properties
+trait Min<P: Property> {
+    type Output: Property;
 }
 
 impl Min<NAdj> for NAdj {
@@ -91,6 +91,24 @@ impl<T: ArrayLength<f64> + ArrayLength<MaybeUninit<f64>>> Length for T {}
 
 trait ExpansionKind<P: Property, N: Length> {
     type Type: Expansion;
+}
+
+trait PropertyOp<P: Property> {
+    type Add;
+}
+impl<P: Property, P2: Property, N: Length> PropertyOp<P2> for FixedExpansion<P, N>
+where
+    P: Min<P2>,
+{
+    type Add = <<P as Min<P2>>::Output as Property>::Weak;
+}
+
+impl<P: Property, P2: Property, N: Length> PropertyOp<P2> for DynamicExpansion<P, N>
+where
+    P: Min<P2>,
+    <P as Min<P2>>::Output: StronglyNonoverlapping,
+{
+    type Add = SNOver;
 }
 
 /// The trait representing a generic floating-point expansion.
@@ -199,6 +217,83 @@ trait Expansion: Default + Index<usize, Output = f64> {
         exp.set_len(exp_i);
         exp
     }
+
+    fn distill_helper<N: Length, NL: Length>(
+        arr: GenericArray<Self, N>,
+        rem: <Self as ExpansionKind<<Self as Expansion>::Prop, NL>>::Type,
+    ) -> <Self as ExpansionKind<
+        <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
+        <<<Self as Expansion>::Bound as Mul<N>>::Output as Add<NL>>::Output,
+    >>::Type
+    where
+        // Const generics when
+        // And I can't use op! because Bound isn't in scope...
+        for<'a, 'b> &'a Self: Add<
+            &'b Self,
+            Output = <Self as ExpansionKind<
+                <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
+                <<Self as Expansion>::Bound as Mul<U2>>::Output,
+            >>::Type,
+        >,
+        for<'a, 'b> <&'a Self as Add<&'b Self>>::Output: Expansion,
+        <Self as Expansion>::Bound: Mul<N>,
+        <<Self as Expansion>::Bound as Mul<N>>::Output: Add<NL>,
+        for<'a, 'b> Self: ExpansionKind<
+            <<&'a Self as Add<&'b Self>>::Output as Expansion>::Prop,
+            <<<Self as Expansion>::Bound as Mul<N>>::Output as Add<NL>>::Output,
+        >,
+        N: ArrayLength<Self> + Div<U2>,
+        <<<Self as Expansion>::Bound as Mul<N>>::Output as Add<NL>>::Output: Length,
+        Self: ExpansionKind<<Self as Expansion>::Prop, NL>,
+        <Self as Expansion>::Bound: Mul<U2>,
+        Self: ExpansionKind<
+            <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
+            <<Self as Expansion>::Bound as Mul<U2>>::Output,
+        >,
+        <<Self as Expansion>::Bound as Mul<U2>>::Output: Length,
+        <N as Div<U2>>::Output: ArrayLength<
+            <Self as ExpansionKind<
+                <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
+                <<Self as Expansion>::Bound as Mul<U2>>::Output,
+            >>::Type,
+        >,
+        Self: PropertyOp<<Self as Expansion>::Prop>,
+        Self: ExpansionKind<
+            <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
+            <<<Self as Expansion>::Bound as std::ops::Mul<N>>::Output as std::ops::Add<NL>>::Output,
+        >,
+        <Self as PropertyOp<<Self as Expansion>::Prop>>::Add: Property,
+    {
+        let mut res = GenericArray::<
+            <Self as ExpansionKind<
+                <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
+                <<Self as Expansion>::Bound as Mul<U2>>::Output,
+            >>::Type,
+            op!(N / U2),
+        >::default();
+
+        for i in 0..<op!(N / U2)>::USIZE {
+            res[i] = &arr[2 * i] + &arr[2 * i + 1];
+        }
+
+        todo!()
+    }
+
+    /// Sums the floating-point expansions in an array
+    fn distill<N: Length>(arr: GenericArray<Self, N>) -> Self::Type
+    where
+        N: ArrayLength<Self>,
+        Self: Add,
+        Self: ExpansionKind<
+            <<Self as Add>::Output as Expansion>::Prop,
+            <<Self as Expansion>::Bound as Mul<N>>::Output,
+        >,
+        <Self as Add>::Output: Expansion,
+        <Self as Expansion>::Bound: Mul<N>,
+        <<Self as Expansion>::Bound as Mul<N>>::Output: Length,
+    {
+        todo!()
+    }
 }
 
 /// An expansion whose size is its array size
@@ -242,6 +337,23 @@ impl<P: Property, N: Length> Expansion for FixedExpansion<P, N> {
 
     fn set_len(&mut self, len: usize) {
         debug_assert_eq!(len, N::USIZE)
+    }
+}
+
+impl<'a, 'b, P: Property, P2: Property, N: Length, N2: Length> Add<&'b FixedExpansion<P2, N2>>
+    for &'a FixedExpansion<P, N>
+where
+    P: Min<P2>,
+    N: Add<N2>,
+    <N as Add<N2>>::Output: Length,
+    N: Add<U1>,
+    <N as Add<U1>>::Output: Length,
+{
+    type Output =
+        FixedExpansion<<<P as Min<P2>>::Output as Property>::Weak, <N as Add<N2>>::Output>;
+
+    fn add(self, rhs: &'b FixedExpansion<P2, N2>) -> Self::Output {
+        self.expansion_sum(rhs)
     }
 }
 
@@ -399,6 +511,23 @@ impl<P: Property, N: Length> Expansion for DynamicExpansion<P, N> {
     }
 }
 
+impl<'a, 'b, P: Property, P2: Property, N: Length, N2: Length> Add<&'b DynamicExpansion<P2, N2>>
+    for &'a DynamicExpansion<P, N>
+where
+    <P as Min<P2>>::Output: StronglyNonoverlapping,
+    P: Min<P2>,
+    N: Add<N2>,
+    <N as Add<N2>>::Output: Length,
+    N: Add<U1>,
+    <N as Add<U1>>::Output: Length,
+{
+    type Output = DynamicExpansion<SNOver, <N as Add<N2>>::Output>;
+
+    fn add(self, rhs: &'b DynamicExpansion<P2, N2>) -> Self::Output {
+        self.fast_expansion_sum(rhs)
+    }
+}
+
 impl<P: Property, N: Length> DynamicExpansion<P, N> {
     /// Only to be used for testing
     fn slice(&self) -> &[f64] {
@@ -420,10 +549,7 @@ impl<P: Property, N: Length> DynamicExpansion<P, N> {
         N: Add<U1>,
         <N as Add<U1>>::Output: Length,
     {
-        let mut exp = DynamicExpansion::<
-            SNOver,
-            <N as Add<N2>>::Output,
-        >::default();
+        let mut exp = DynamicExpansion::<SNOver, <N as Add<N2>>::Output>::default();
 
         // Merge self and other
         let mut i = 0;
@@ -441,10 +567,14 @@ impl<P: Property, N: Length> DynamicExpansion<P, N> {
         // Initial fast_two_sum would fail, and besides,
         // the result is correct as is
         if self.len + other.len < 2 {
-            exp.len = if self.len + other.len == 1 && exp[0] != 0.0 {1} else {0};
+            exp.len = if self.len + other.len == 1 && exp[0] != 0.0 {
+                1
+            } else {
+                0
+            };
             return exp;
         }
-        
+
         // Do the summing
         let mut exp_i = 0;
         let res = fast_two_sum(exp[1], exp[0]);
@@ -469,7 +599,7 @@ impl<P: Property, N: Length> DynamicExpansion<P, N> {
             exp.set(exp_i, sum);
             exp_i += 1;
         }
-        
+
         exp.len = exp_i;
         exp
     }
