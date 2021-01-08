@@ -9,9 +9,9 @@ extern crate typenum;
 extern crate generic_array;
 
 use generic_array::{sequence::Lengthen, ArrayLength, GenericArray};
-use std::ops::{Add, Index, RangeTo};
+use std::ops::{Add, Mul, Index, RangeTo};
 use std::{marker::PhantomData, mem::MaybeUninit};
-use typenum::{Add1, Greater, Unsigned, U0, U1, U2};
+use typenum::{Greater, Unsigned, U0, U1, U2};
 
 /// Consecutive terms in the expansion do not overlap
 /// even if the smaller term is multiplied by 2.
@@ -129,23 +129,74 @@ trait Expansion: Default + Index<usize, Output = f64> {
     {
         let mut exp = Self::Type::default();
         let mut sum = b;
-        let mut arr_i = 0;
+        let mut exp_i = 0;
 
         for i in 0..self.len() {
             let res = two_sum(sum, self[i]);
-            sum = res.arr[1];
-            if !Self::ZERO_ELIMINATE || res.arr[0] != 0.0 {
-                exp.set(arr_i, res.arr[0]);
-                arr_i += 1;
+            sum = res[1];
+            if !Self::ZERO_ELIMINATE || res[0] != 0.0 {
+                exp.set(exp_i, res[0]);
+                exp_i += 1;
             }
         }
 
         if !Self::ZERO_ELIMINATE || sum != 0.0 {
-            exp.set(arr_i, sum);
-            arr_i += 1;
+            exp.set(exp_i, sum);
+            exp_i += 1;
         }
 
-        exp.set_len(arr_i);
+        exp.set_len(exp_i);
+        exp
+    }
+
+    /// Multiplies this expansion by `b`,
+    /// using a sequence of `two_product`s and `two_sum`s.
+    /// Note that strongly nonoverlapping is preserved,
+    /// as well as the other 2 properties.
+    fn scale_expansion(&self, b: f64) -> Self::Type
+    where
+        Self: ExpansionKind<
+            <Self as Expansion>::Prop,
+            <<Self as Expansion>::Bound as Mul<U2>>::Output,
+        >,
+        <Self as Expansion>::Bound: Mul<U2>,
+        <<Self as Expansion>::Bound as Mul<U2>>::Output: Length,
+    {
+        let mut exp = Self::Type::default();
+        if self.len() == 0 {
+            return exp;
+        }
+
+        let mut exp_i = 0;
+
+        let res = two_product(self[0], b);
+        let mut prod = res[1];
+
+        if !Self::ZERO_ELIMINATE || res[0] != 0.0 {
+            exp.set(exp_i, res[0]);
+            exp_i += 1;
+        }
+
+        for i in 1..self.len() {
+            let res1 = two_product(self[i], b);
+            let res2 = two_sum(res1[0], prod);
+            let res3 = fast_two_sum(res1[1], res2[1]);
+            prod = res3[1];
+
+            for res in vec![res2[0], res3[0]] {
+                if !Self::ZERO_ELIMINATE || res != 0.0 {
+                    exp.set(exp_i, res);
+                    exp_i += 1;
+                }
+            }
+        }
+
+        if !Self::ZERO_ELIMINATE || prod != 0.0 {
+            exp.set(exp_i, prod);
+            exp_i += 1;
+        }
+
+        exp.set_len(exp_i);
         exp
     }
 }
@@ -266,6 +317,25 @@ fn two_sum(a: f64, b: f64) -> FixedExpansion<NAdj, U2> {
     FixedExpansion::new([(a - av) + (b - bv), x])
 }
 
+/// Splits the significand in half so prepare it for multiplication.
+/// Returns the low bits, then the high bits
+fn split(a: f64) -> [f64; 2] {
+    let c = (2f64.powi((f64::MANTISSA_DIGITS as i32 + 1) / 2) + 1.0) * a;
+    let a_hi = c - (c - a);
+    let a_lo = a - a_hi;
+    [a_lo, a_hi]
+}
+
+/// Constructs an expansion from the product of `a` and `b`.
+/// The greater term is `a` * `b` with floating-point multiplication.
+fn two_product(a: f64, b: f64) -> FixedExpansion<NAdj, U2> {
+    let x = a * b;
+    let [a_lo, a_hi] = split(a);
+    let [b_lo, b_hi] = split(b);
+    let err = x - a_hi * b_hi - a_lo * b_hi - a_hi * b_lo;
+    FixedExpansion::new([a_lo * b_lo - err, x])
+}
+
 /// An expansion whose size is stored explicitly,
 /// but (for now) still has an upper bound for size.
 #[derive(Clone, Debug)]
@@ -377,7 +447,7 @@ impl<P: Property, N: Length> DynamicExpansion<P, N> {
         
         // Do the summing
         let mut exp_i = 0;
-        let res: [f64; 2] = fast_two_sum(exp[1], exp[0]).arr.into();
+        let res = fast_two_sum(exp[1], exp[0]);
         let mut sum = res[1];
 
         if res[0] != 0.0 {
@@ -386,7 +456,7 @@ impl<P: Property, N: Length> DynamicExpansion<P, N> {
         }
 
         for i in 2..(self.len + other.len) {
-            let res: [f64; 2] = two_sum(sum, exp[i]).arr.into();
+            let res = two_sum(sum, exp[i]);
             sum = res[1];
 
             if res[0] != 0.0 {
@@ -529,6 +599,7 @@ mod tests {
         // One or both operands are 0
         let exp_0 = DynamicExpansion::<NAdj, U1>::with_len([0.0], 0);
         let res = exp_0.grow_expansion(0.0);
+        assert_eq!(res.slice(), []);
 
         let res = exp_0.grow_expansion(5.5);
         assert_eq!(res.slice(), [5.5]);
@@ -552,7 +623,7 @@ mod tests {
 
     #[test]
     fn test_grow_expansion_single_high_precision() {
-        // Result can fit in a float
+        // Result can't fit in a float
         let exp = FixedExpansion::<NAdj, U1>::new([1.0]);
         let res = exp.grow_expansion(e(1.0, -53));
         assert_eq!(res.arr, [e(1.0, -53), 1.0].into());
@@ -691,4 +762,88 @@ mod tests {
         assert_eq!(res.slice(), [e(1.0, -106), 2.0]);
     }
 
+    #[test]
+    fn test_two_product_low_precision() {
+        // Result can fit in f64
+        let nums = [15.75, 1.5, 0.0, -4.625, -15.75];
+        for a in &nums {
+            for b in &nums {
+                let res = two_product(*a, *b);
+                assert_eq!(res.arr, [0.0, a * b].into());
+            }
+        }
+    }
+
+    #[test]
+    fn test_two_product_high_precision() {
+        // Result takes 2 f64s
+        let res = two_product(1.0 + e(1.0, 27), 1.0 + e(1.0, 30));
+        assert_eq!(res.arr, [1.0, e(1.0, 27) + e(1.0, 30) + e(1.0, 57)].into());
+    }
+
+    #[test]
+    fn test_scale_expansion_zero_fixed() {
+        // One or both operands are 0
+        let exp_0 = FixedExpansion::<NAdj, U1>::new([0.0]);
+        let res = exp_0.scale_expansion(0.0);
+        assert_eq!(res.arr, [0.0, 0.0].into());
+
+        let res = exp_0.scale_expansion(5.5);
+        assert_eq!(res.arr, [0.0, 0.0].into());
+
+        let exp = FixedExpansion::<NAdj, U2>::new([e(3.0, -20), 3.25]);
+        let res = exp.scale_expansion(0.0);
+        assert_eq!(res.arr, [0.0, 0.0, 0.0, 0.0].into());
+    }
+
+    #[test]
+    fn test_scale_expansion_zero_dynamic() {
+        // One or both operands are 0
+        let exp_0 = DynamicExpansion::<NAdj, U1>::with_len([0.0], 0);
+        let res = exp_0.scale_expansion(0.0);
+        assert_eq!(res.slice(), []);
+
+        let res = exp_0.scale_expansion(5.5);
+        assert_eq!(res.slice(), []);
+
+        let exp = DynamicExpansion::<NAdj, U2>::with_len([e(3.0, -20), 3.25], 2);
+        let res = exp.scale_expansion(0.0);
+        assert_eq!(res.slice(), []);
+    }
+
+    #[test]
+    fn test_scale_expansion_single_low_precision() {
+        // Result can fit in a float
+        let exp = FixedExpansion::<NAdj, U1>::new([2.0]);
+        let res = exp.scale_expansion(1.75);
+        assert_eq!(res.arr, [0.0, 3.5].into());
+
+        let exp = DynamicExpansion::<NAdj, U1>::with_len([2.0], 1);
+        let res = exp.scale_expansion(1.75);
+        assert_eq!(res.slice(), [3.5]);
+    }
+
+    #[test]
+    fn test_scale_expansion_single_high_precision() {
+        // Result can't fit in a float
+        let exp = FixedExpansion::<NAdj, U1>::new([1.5]);
+        let res = exp.scale_expansion(e(1.0, -52) + 1.0);
+        assert_eq!(res.arr, [e(-1.0, -53), 1.5 + e(1.0, -51)].into());
+
+        let exp = DynamicExpansion::<NAdj, U1>::with_len([1.5], 1);
+        let res = exp.scale_expansion(e(1.0, -52) + 1.0);
+        assert_eq!(res.slice(), [e(-1.0, -53), 1.5 + e(1.0, -51)]);
+    }
+
+    #[test]
+    fn test_scale_expansion_multiple() {
+        // Input is longer
+        let exp = FixedExpansion::<NAdj, U2>::new([e(1.0, -53), 1.0]);
+        let res = exp.scale_expansion(5.0);
+        assert_eq!(res.arr, [0.0, 0.0, e(-3.0, -53), 5.0 + e(1.0, -50)].into());
+
+        let exp = DynamicExpansion::<NAdj, U2>::with_len([e(1.0, -53), 1.0], 2);
+        let res = exp.scale_expansion(5.0);
+        assert_eq!(res.slice(), [e(-3.0, -53), 5.0 + e(1.0, -50)]);
+    }
 }
