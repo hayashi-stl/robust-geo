@@ -7,9 +7,14 @@
 extern crate typenum;
 #[macro_use]
 extern crate generic_array;
+extern crate nalgebra;
+
+mod geo;
+
+pub use geo::orient_2d;
 
 use generic_array::{sequence::Lengthen, ArrayLength, GenericArray};
-use std::ops::{Add, Div, Index, Mul, RangeTo};
+use std::ops::{Add, Neg, Sub, Div, Index, Mul, RangeTo};
 use std::{marker::PhantomData, mem::MaybeUninit};
 use typenum::{Greater, Unsigned, U0, U1, U2};
 
@@ -218,81 +223,31 @@ trait Expansion: Default + Index<usize, Output = f64> {
         exp
     }
 
-    fn distill_helper<N: Length, NL: Length>(
-        arr: GenericArray<Self, N>,
-        rem: <Self as ExpansionKind<<Self as Expansion>::Prop, NL>>::Type,
-    ) -> <Self as ExpansionKind<
-        <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
-        <<<Self as Expansion>::Bound as Mul<N>>::Output as Add<NL>>::Output,
-    >>::Type
-    where
-        // Const generics when
-        // And I can't use op! because Bound isn't in scope...
-        for<'a, 'b> &'a Self: Add<
-            &'b Self,
-            Output = <Self as ExpansionKind<
-                <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
-                <<Self as Expansion>::Bound as Mul<U2>>::Output,
-            >>::Type,
-        >,
-        for<'a, 'b> <&'a Self as Add<&'b Self>>::Output: Expansion,
-        <Self as Expansion>::Bound: Mul<N>,
-        <<Self as Expansion>::Bound as Mul<N>>::Output: Add<NL>,
-        for<'a, 'b> Self: ExpansionKind<
-            <<&'a Self as Add<&'b Self>>::Output as Expansion>::Prop,
-            <<<Self as Expansion>::Bound as Mul<N>>::Output as Add<NL>>::Output,
-        >,
-        N: ArrayLength<Self> + Div<U2>,
-        <<<Self as Expansion>::Bound as Mul<N>>::Output as Add<NL>>::Output: Length,
-        Self: ExpansionKind<<Self as Expansion>::Prop, NL>,
-        <Self as Expansion>::Bound: Mul<U2>,
-        Self: ExpansionKind<
-            <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
-            <<Self as Expansion>::Bound as Mul<U2>>::Output,
-        >,
-        <<Self as Expansion>::Bound as Mul<U2>>::Output: Length,
-        <N as Div<U2>>::Output: ArrayLength<
-            <Self as ExpansionKind<
-                <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
-                <<Self as Expansion>::Bound as Mul<U2>>::Output,
-            >>::Type,
-        >,
-        Self: PropertyOp<<Self as Expansion>::Prop>,
-        Self: ExpansionKind<
-            <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
-            <<<Self as Expansion>::Bound as std::ops::Mul<N>>::Output as std::ops::Add<NL>>::Output,
-        >,
-        <Self as PropertyOp<<Self as Expansion>::Prop>>::Add: Property,
-    {
-        let mut res = GenericArray::<
-            <Self as ExpansionKind<
-                <Self as PropertyOp<<Self as Expansion>::Prop>>::Add,
-                <<Self as Expansion>::Bound as Mul<U2>>::Output,
-            >>::Type,
-            op!(N / U2),
-        >::default();
-
-        for i in 0..<op!(N / U2)>::USIZE {
-            res[i] = &arr[2 * i] + &arr[2 * i + 1];
+    /// Returns the approximate value of this expansion.
+    fn approximate(&self) -> f64 {
+        let mut res = 0.0;
+        for i in 0..self.len() {
+            res += self[i]
         }
-
-        todo!()
+        res
     }
 
-    /// Sums the floating-point expansions in an array
-    fn distill<N: Length>(arr: GenericArray<Self, N>) -> Self::Type
-    where
-        N: ArrayLength<Self>,
-        Self: Add,
-        Self: ExpansionKind<
-            <<Self as Add>::Output as Expansion>::Prop,
-            <<Self as Expansion>::Bound as Mul<N>>::Output,
-        >,
-        <Self as Add>::Output: Expansion,
-        <Self as Expansion>::Bound: Mul<N>,
-        <<Self as Expansion>::Bound as Mul<N>>::Output: Length,
-    {
-        todo!()
+    /// Returns the component with the highest magnitude.
+    fn highest_magnitude(&self) -> f64 {
+        if Self::ZERO_ELIMINATE {
+            if self.len() > 0 {
+                self[self.len() - 1]
+            } else {
+                0.0
+            }
+        } else {
+            for i in (0..self.len()).rev() {
+                if self[i] != 0.0 {
+                    return self[i];
+                } 
+            }
+            0.0
+        }
     }
 }
 
@@ -307,7 +262,8 @@ impl<P: Property, N: Length> Index<usize> for FixedExpansion<P, N> {
     type Output = f64;
 
     fn index(&self, index: usize) -> &Self::Output {
-        &self.arr[index]
+        debug_assert!(index < N::USIZE);
+        unsafe { &self.arr.get_unchecked(index) }
     }
 }
 
@@ -332,7 +288,8 @@ impl<P: Property, N: Length> Expansion for FixedExpansion<P, N> {
     }
 
     fn set(&mut self, index: usize, value: f64) {
-        self.arr[index] = value;
+        debug_assert!(index < N::USIZE);
+        unsafe { *self.arr.get_unchecked_mut(index) = value };
     }
 
     fn set_len(&mut self, len: usize) {
@@ -340,22 +297,75 @@ impl<P: Property, N: Length> Expansion for FixedExpansion<P, N> {
     }
 }
 
-impl<'a, 'b, P: Property, P2: Property, N: Length, N2: Length> Add<&'b FixedExpansion<P2, N2>>
-    for &'a FixedExpansion<P, N>
-where
-    P: Min<P2>,
-    N: Add<N2>,
-    <N as Add<N2>>::Output: Length,
-    N: Add<U1>,
-    <N as Add<U1>>::Output: Length,
-{
-    type Output =
-        FixedExpansion<<<P as Min<P2>>::Output as Property>::Weak, <N as Add<N2>>::Output>;
+macro_rules! impl_add_fixed {
+    ($($a:lifetime)?, $($b:lifetime)?, $($and:tt)?) => {
+        impl<$($a,)? $($b,)? P: Property, P2: Property, N: Length, N2: Length> Add<$(&$b)? FixedExpansion<P2, N2>>
+            for $(&$a)? FixedExpansion<P, N>
+        where
+            P: Min<P2>,
+            N: Add<N2>,
+            <N as Add<N2>>::Output: Length,
+            N: Add<U1>,
+            <N as Add<U1>>::Output: Length,
+        {
+            type Output =
+                FixedExpansion<<<P as Min<P2>>::Output as Property>::Weak, <N as Add<N2>>::Output>;
 
-    fn add(self, rhs: &'b FixedExpansion<P2, N2>) -> Self::Output {
-        self.expansion_sum(rhs)
-    }
+            fn add(self, rhs: $(&$b)? FixedExpansion<P2, N2>) -> Self::Output {
+                self.expansion_sum($(&$and)? rhs)
+            }
+        }
+    };
 }
+impl_add_fixed!(  ,   , &);
+impl_add_fixed!('a,   , &);
+impl_add_fixed!(  , 'b,  );
+impl_add_fixed!('a, 'b,  );
+
+macro_rules! impl_neg_fixed {
+    ($($a:lifetime)?) => {
+        impl<$($a,)? P: Property, N: Length> Neg
+            for $(&$a)? FixedExpansion<P, N>
+        {
+            type Output = FixedExpansion<P, N>;
+
+            fn neg(self) -> Self::Output {
+                let mut res = FixedExpansion::<P, N>::default();
+                for i in 0..N::USIZE {
+                    res.set(i, -self[i]);
+                }
+                res
+            }
+        }
+    };
+}
+impl_neg_fixed!(  );
+impl_neg_fixed!('a);
+
+macro_rules! impl_sub_fixed {
+    ($($a:lifetime)?, $($b:lifetime)?, $($and:tt)?) => {
+        impl<$($a,)? $($b,)? P: Property, P2: Property, N: Length, N2: Length> Sub<$(&$b)? FixedExpansion<P2, N2>>
+            for $(&$a)? FixedExpansion<P, N>
+        where
+            P: Min<P2>,
+            N: Add<N2>,
+            <N as Add<N2>>::Output: Length,
+            N: Add<U1>,
+            <N as Add<U1>>::Output: Length,
+        {
+            type Output =
+                FixedExpansion<<<P as Min<P2>>::Output as Property>::Weak, <N as Add<N2>>::Output>;
+
+            fn sub(self, rhs: $(&$b)? FixedExpansion<P2, N2>) -> Self::Output {
+                self.expansion_sum(&-rhs)
+            }
+        }
+    };
+}
+impl_sub_fixed!(  ,   , &);
+impl_sub_fixed!('a,   , &);
+impl_sub_fixed!(  , 'b,  );
+impl_sub_fixed!('a, 'b,  );
 
 impl<P: Property, N: Length> FixedExpansion<P, N> {
     fn new(arr: impl Into<GenericArray<f64, N>>) -> Self {
@@ -366,11 +376,11 @@ impl<P: Property, N: Length> FixedExpansion<P, N> {
     }
 
     fn subexpansion<Len: Length>(&self, start: usize) -> FixedExpansion<P, Len> {
-        let mut arr = GenericArray::<f64, Len>::default();
+        let mut exp = FixedExpansion::<P, Len>::default();
         for i in 0..Len::USIZE {
-            arr[i] = self.arr[start + i];
+            exp.set(i, self[start + i]);
         }
-        FixedExpansion::new(arr)
+        exp
     }
 
     fn set_subexpansion<P2: Property, N2: Length>(
@@ -379,7 +389,7 @@ impl<P: Property, N: Length> FixedExpansion<P, N> {
         start: usize,
     ) {
         for i in 0..N2::USIZE {
-            self.arr[start + i] = sub.arr[i];
+            self.set(start + i, sub[i]);
         }
     }
 
@@ -404,11 +414,16 @@ impl<P: Property, N: Length> FixedExpansion<P, N> {
 
         for i in 0..N2::USIZE {
             let sub = exp.subexpansion::<N>(i);
-            let sub = sub.grow_expansion(other.arr[i]);
+            let sub = sub.grow_expansion(other[i]);
             exp.set_subexpansion(&sub, i);
         }
 
         exp
+    }
+
+    /// Converts this to a dynamic expression
+    fn dynamic(self) -> DynamicExpansion<P, N> {
+        DynamicExpansion::with_len(self.arr, N::USIZE)
     }
 }
 
@@ -472,7 +487,8 @@ impl<P: Property, N: Length> Index<usize> for DynamicExpansion<P, N> {
     type Output = f64;
 
     fn index(&self, index: usize) -> &Self::Output {
-        unsafe { &*self.arr[index].as_ptr() }
+        debug_assert!(index < N::USIZE);
+        unsafe { &*self.arr.get_unchecked(index).as_ptr() }
     }
 }
 
@@ -496,14 +512,15 @@ impl<P: Property, N: Length> Expansion for DynamicExpansion<P, N> {
         let mut exp = Self::default();
         exp.len = len;
         for i in 0..len {
-            exp.set(i, arr[i]);
+            exp.set(i, unsafe { *arr.get_unchecked(i) });
         }
 
         exp
     }
 
     fn set(&mut self, index: usize, value: f64) {
-        self.arr[index] = MaybeUninit::new(value);
+        debug_assert!(index < N::USIZE);
+        unsafe { *self.arr.get_unchecked_mut(index) = MaybeUninit::new(value) };
     }
 
     fn set_len(&mut self, len: usize) {
@@ -511,22 +528,76 @@ impl<P: Property, N: Length> Expansion for DynamicExpansion<P, N> {
     }
 }
 
-impl<'a, 'b, P: Property, P2: Property, N: Length, N2: Length> Add<&'b DynamicExpansion<P2, N2>>
-    for &'a DynamicExpansion<P, N>
-where
-    <P as Min<P2>>::Output: StronglyNonoverlapping,
-    P: Min<P2>,
-    N: Add<N2>,
-    <N as Add<N2>>::Output: Length,
-    N: Add<U1>,
-    <N as Add<U1>>::Output: Length,
-{
-    type Output = DynamicExpansion<SNOver, <N as Add<N2>>::Output>;
+macro_rules! impl_add_dynamic {
+    ($($a:lifetime)?, $($b:lifetime)?, $($and:tt)?) => {
+        impl<$($a,)? $($b,)? P: Property, P2: Property, N: Length, N2: Length> Add<$(&$b)? DynamicExpansion<P2, N2>>
+            for $(&$a)? DynamicExpansion<P, N>
+        where
+            <P as Min<P2>>::Output: StronglyNonoverlapping,
+            P: Min<P2>,
+            N: Add<N2>,
+            <N as Add<N2>>::Output: Length,
+            N: Add<U1>,
+            <N as Add<U1>>::Output: Length,
+        {
+            type Output = DynamicExpansion<SNOver, <N as Add<N2>>::Output>;
 
-    fn add(self, rhs: &'b DynamicExpansion<P2, N2>) -> Self::Output {
-        self.fast_expansion_sum(rhs)
-    }
+            fn add(self, rhs: $(&$b)? DynamicExpansion<P2, N2>) -> Self::Output {
+                self.fast_expansion_sum($(&$and)? rhs)
+            }
+        }
+    };
 }
+impl_add_dynamic!(  ,   , &);
+impl_add_dynamic!('a,   , &);
+impl_add_dynamic!(  , 'b,  );
+impl_add_dynamic!('a, 'b,  );
+
+macro_rules! impl_neg_dynamic {
+    ($($a:lifetime)?) => {
+        impl<$($a,)? P: Property, N: Length> Neg
+            for $(&$a)? DynamicExpansion<P, N>
+        {
+            type Output = DynamicExpansion<P, N>;
+
+            fn neg(self) -> Self::Output {
+                let mut res = DynamicExpansion::<P, N>::default();
+                for i in 0..N::USIZE {
+                    res.set(i, -self[i]);
+                }
+                res
+            }
+        }
+    };
+}
+impl_neg_dynamic!(  );
+impl_neg_dynamic!('a);
+
+macro_rules! impl_sub_dynamic {
+    ($($a:lifetime)?, $($b:lifetime)?, $($and:tt)?) => {
+        impl<$($a,)? $($b,)? P: Property, P2: Property, N: Length, N2: Length> Sub<$(&$b)? DynamicExpansion<P2, N2>>
+            for $(&$a)? DynamicExpansion<P, N>
+        where
+            <P as Min<P2>>::Output: StronglyNonoverlapping,
+            P: Min<P2>,
+            N: Add<N2>,
+            <N as Add<N2>>::Output: Length,
+            N: Add<U1>,
+            <N as Add<U1>>::Output: Length,
+        {
+            type Output = DynamicExpansion<SNOver, <N as Add<N2>>::Output>;
+
+            fn sub(self, rhs: $(&$b)? DynamicExpansion<P2, N2>) -> Self::Output {
+                self.fast_expansion_sum(&-rhs)
+            }
+        }
+    };
+}
+impl_sub_dynamic!(  ,   , &);
+impl_sub_dynamic!('a,   , &);
+impl_sub_dynamic!(  , 'b,  );
+impl_sub_dynamic!('a, 'b,  );
+
 
 impl<P: Property, N: Length> DynamicExpansion<P, N> {
     /// Only to be used for testing
@@ -729,7 +800,7 @@ mod tests {
         // One or both operands are 0
         let exp_0 = DynamicExpansion::<NAdj, U1>::with_len([0.0], 0);
         let res = exp_0.grow_expansion(0.0);
-        assert_eq!(res.slice(), []);
+        assert_eq!(res.slice(), [] as [f64; 0]);
 
         let res = exp_0.grow_expansion(5.5);
         assert_eq!(res.slice(), [5.5]);
@@ -845,10 +916,10 @@ mod tests {
         let exp1 = DynamicExpansion::<NAdj, U1>::with_len([0.0], 0);
         let exp2 = DynamicExpansion::<NAdj, U2>::with_len([0.0, 0.0], 1);
         let res = exp1.fast_expansion_sum(&exp1);
-        assert_eq!(res.slice(), []); // 0 element merge test case
+        assert_eq!(res.slice(), [] as [f64; 0]); // 0 element merge test case
 
         let res = exp1.fast_expansion_sum(&exp2);
-        assert_eq!(res.slice(), []); // 1 element merge test case
+        assert_eq!(res.slice(), [] as [f64; 0]); // 1 element merge test case
 
         let exp3 = DynamicExpansion::<NAdj, U1>::with_len([1.0], 1);
         let res = exp1.fast_expansion_sum(&exp3);
@@ -931,14 +1002,14 @@ mod tests {
         // One or both operands are 0
         let exp_0 = DynamicExpansion::<NAdj, U1>::with_len([0.0], 0);
         let res = exp_0.scale_expansion(0.0);
-        assert_eq!(res.slice(), []);
+        assert_eq!(res.slice(), [] as [f64; 0]);
 
         let res = exp_0.scale_expansion(5.5);
-        assert_eq!(res.slice(), []);
+        assert_eq!(res.slice(), [] as [f64; 0]);
 
         let exp = DynamicExpansion::<NAdj, U2>::with_len([e(3.0, -20), 3.25], 2);
         let res = exp.scale_expansion(0.0);
-        assert_eq!(res.slice(), []);
+        assert_eq!(res.slice(), [] as [f64; 0]);
     }
 
     #[test]
@@ -975,5 +1046,45 @@ mod tests {
         let exp = DynamicExpansion::<NAdj, U2>::with_len([e(1.0, -53), 1.0], 2);
         let res = exp.scale_expansion(5.0);
         assert_eq!(res.slice(), [e(-3.0, -53), 5.0 + e(1.0, -50)]);
+    }
+
+    #[test]
+    fn test_highest_magnitude_zero() {
+        let exp = FixedExpansion::<NAdj, U2>::new([0.0, 0.0]);
+        let res = exp.highest_magnitude();
+        assert_eq!(res, 0.0);
+
+        let exp = DynamicExpansion::<NAdj, U1>::with_len([0.0], 0);
+        let res = exp.highest_magnitude();
+        assert_eq!(res, 0.0);
+    }
+
+    #[test]
+    fn test_highest_magnitude_positive() {
+        let exp = FixedExpansion::<NAdj, U2>::new([1.0, e(1.0, 53)]);
+        let res = exp.highest_magnitude();
+        assert_eq!(res, e(1.0, 53));
+
+        let exp = DynamicExpansion::<NAdj, U2>::with_len([1.0, e(1.0, 53)], 2);
+        let res = exp.highest_magnitude();
+        assert_eq!(res, e(1.0, 53));
+    }
+
+    #[test]
+    fn test_highest_magnitude_negative() {
+        let exp = FixedExpansion::<NAdj, U2>::new([1.0, e(-1.0, 53)]);
+        let res = exp.highest_magnitude();
+        assert_eq!(res, e(-1.0, 53));
+
+        let exp = DynamicExpansion::<NAdj, U2>::with_len([1.0, e(-1.0, 53)], 2);
+        let res = exp.highest_magnitude();
+        assert_eq!(res, e(-1.0, 53));
+    }
+    
+    #[test]
+    fn test_highest_magnitude_top_zero() {
+        let exp = FixedExpansion::<NAdj, U3>::new([1.0, e(-1.0, 53), 0.0]);
+        let res = exp.highest_magnitude();
+        assert_eq!(res, e(-1.0, 53));
     }
 }
