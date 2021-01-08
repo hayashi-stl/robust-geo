@@ -125,9 +125,8 @@ mod test {
     #[test]
     fn test_orient_2d_near_collinear() {
         let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
-        let dist = Uniform::new(-2.0, 2.0);
+        let dist = Uniform::new(-1.0, 1.0);
         let fac_dist = Uniform::new(-1.0, 2.0);
-        let perturb = Uniform::new(-(-50f64).exp2(), (-50f64).exp2());
 
         for _ in 0..10000 {
             let vals = dist.sample_iter(&mut rng).take(4).collect::<Vec<_>>();
@@ -135,8 +134,26 @@ mod test {
             let b = Vec2::new(vals[2], vals[3]);
 
             let fac = fac_dist.sample(&mut rng);
-            let pert = perturb.sample_iter(&mut rng).take(2).collect::<Vec<_>>();
-            let c = a + (b - a) * fac + Vec2::new(pert[0], pert[1]);
+            let c = a + (b - a) * fac;
+            
+            check_orient_2d(a, b, c);
+        }
+    }
+
+    #[test]
+    fn test_orient_2d_collinear() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new_inclusive(-4096, 4096);
+        let fac_dist = Uniform::new_inclusive(-4095, 4096);
+
+        for _ in 0..10000 {
+            let vals = dist.sample_iter(&mut rng).take(4)
+                .map(|x| (x as f64) / 4096.0).collect::<Vec<_>>();
+            let a = Vec2::new(vals[0], vals[1]);
+            let b = Vec2::new(vals[2], vals[3]);
+
+            let fac = fac_dist.sample(&mut rng);
+            let c = a + (b - a) * (fac as f64) / 16.0;
             
             check_orient_2d(a, b, c);
         }
