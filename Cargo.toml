@@ -12,6 +12,7 @@ generic-array = "0.14.4"
 higher = "0.1.1"
 higher-derive = "0.1.1"
 nalgebra = "0.24.0"
+paste = "1.0.4"
 
 [dev-dependencies]
 rug = "1.11.0"
@@ -21,4 +22,8 @@ criterion = "0.3"
 
 [[bench]]
 name = "orient_2d"
+harness = false
+
+[[bench]]
+name = "orient_3d"
 harness = false

@@ -8,6 +8,8 @@ extern crate typenum;
 #[macro_use]
 extern crate generic_array;
 extern crate nalgebra;
+#[macro_use]
+extern crate paste;
 
 mod geo;
 

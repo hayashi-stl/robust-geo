@@ -71,19 +71,69 @@ fn orient_2d_adapt(a: Vec2, b: Vec2, c: Vec2, det_sum: f64) -> f64 {
     det.highest_magnitude()
 }
 
+macro_rules! sep_let {
+    (($($d:tt $var:ident),*) => let $($name:ident : [$($vals:tt)*]),* = $($expr:tt)*) => {
+        macro_rules! __mac {
+            ($($d $var:ident),*) => { $($expr)* };
+            ($($d $var:expr),*) => { $($expr)* };
+        }
+
+        let [$($name),*] = [
+            $(__mac!($($vals)*)),*
+        ];
+    };
+}
+
+// xyz permutation shortcut.
+// Simplifies cofactor repitition.
+macro_rules! sep_xyz {
+    (($dx:tt $x:ident, $dy:tt $y:ident, $dz:tt $z:ident $(, $d:tt $var:ident)*) 
+        => let $n1:ident : [$($v1:tt)*], $n2:ident : [$($v2:tt)*], $n3:ident : [$($v3:tt)*] = $($expr:tt)*) =>
+    {
+        sep_let!(($dx $x, $dy $y, $dz $z $(, $d $var)*) =>
+            let $n1: [$x, $y, $z, $($v1)*], $n2: [$y, $z, $x, $($v2)*], $n3: [$z, $x, $y, $($v3)*] = $($expr)*);
+    };
+
+    (($dx:tt $x:ident, $dy:tt $y:ident, $dz:tt $z:ident) => let $n1:ident, $n2:ident, $n3:ident = $($expr:tt)*) => {
+        sep_let!(($dx $x, $dy $y, $dz $z) =>
+            let $n1: [$x, $y, $z], $n2: [$y, $z, $x], $n3: [$z, $x, $y] = $($expr)*);
+    };
+}
+
+// These regress performance, unfortunately
+//macro_rules! arr_let {
+//    (($($d:tt $var:ident),*) => let $name:ident : $([$($vals:tt)*]),* = $($expr:tt)*) => {
+//        macro_rules! __mac {
+//            ($($d $var:ident),*) => { $($expr)* };
+//            ($($d $var:expr),*) => { $($expr)* };
+//        }
+//
+//        let $name = [
+//            $(__mac!($($vals)*)),*
+//        ];
+//    };
+//}
+//
+//macro_rules! arr_xyz {
+//    (($dx:tt $x:ident, $dy:tt $y:ident, $dz:tt $z:ident) => let $name:ident = $($expr:tt)*) => {
+//        arr_let!(($dx $x, $dy $y, $dz $z) =>
+//            let $name: [[0, 1, 2], [1, 2, 0], [2, 0, 1]] = $($expr)*);
+//    };
+//}
+
 /// Calculates the orientation of points `a`, `b`, `c`, `d` in a space.
 /// Returns a positive number if `b`→`c`→`d` defines a left turn when looked at from `a`,
 /// a negative number if they define a right turn,
 /// and 0 if `a`, `b`, `c`, `d` are coplanar.
 #[rustfmt::skip]
 pub fn orient_3d(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> f64 {
-    let cof1 = (a.z - d.z) * ((b.x - d.x) * (c.y - d.y) - (b.y - d.y) * (c.x - d.x));
-    let cof2 = (a.x - d.x) * ((b.y - d.y) * (c.z - d.z) - (b.z - d.z) * (c.y - d.y));
-    let cof3 = (a.y - d.y) * ((b.z - d.z) * (c.x - d.x) - (b.x - d.x) * (c.z - d.z));
+    // vec![[0, 1, 2], [1, 2, 0], [2, 0, 1]].into_iter().map(|[x, y, z] stuff).sum::<f64>() regressed performance a lot
+    sep_xyz!(($x, $y, $z) => let cof1, cof2, cof3 = 
+        (a.$z - d.$z) * ((b.$x - d.$x) * (c.$y - d.$y) - (b.$y - d.$y) * (c.$x - d.$x)));
     let det = cof1 + cof2 + cof3;
-    let cof1_sum = (a.z - d.z).abs() * (((b.x - d.x) * (c.y - d.y)).abs() + ((b.y - d.y) * (c.x - d.x)).abs());
-    let cof2_sum = (a.x - d.x).abs() * (((b.y - d.y) * (c.z - d.z)).abs() + ((b.z - d.z) * (c.y - d.y)).abs());
-    let cof3_sum = (a.y - d.y).abs() * (((b.z - d.z) * (c.x - d.x)).abs() + ((b.x - d.x) * (c.z - d.z)).abs());
+
+    sep_xyz!(($x, $y, $z) => let cof1_sum, cof2_sum, cof3_sum = 
+        (a.$z - d.$z).abs() * (((b.$x - d.$x) * (c.$y - d.$y)).abs() + ((b.$y - d.$y) * (c.$x - d.$x)).abs()));
     let det_sum = cof1_sum + cof2_sum + cof3_sum;
 
     if det.abs() >= det_sum * ORIENT_3D_BOUND_A {
@@ -95,12 +145,8 @@ pub fn orient_3d(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> f64 {
 
 #[rustfmt::skip]
 fn orient_3d_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3, det_sum: f64) -> f64 {
-    let sub1 = (two_product(b.x - d.x, c.y - d.y) - two_product(b.y - d.y, c.x - d.x)).dynamic();
-    let sub2 = (two_product(b.y - d.y, c.z - d.z) - two_product(b.z - d.z, c.y - d.y)).dynamic();
-    let sub3 = (two_product(b.z - d.z, c.x - d.x) - two_product(b.x - d.x, c.z - d.z)).dynamic();
-    let cof1 = sub1.scale_expansion(a.z - d.z);
-    let cof2 = sub2.scale_expansion(a.x - d.x);
-    let cof3 = sub3.scale_expansion(a.y - d.y);
+    sep_xyz!(($x, $y, $z) => let sub1, sub2, sub3 = (two_product(b.$x - d.$x, c.$y - d.$y) - two_product(b.$y - d.$y, c.$x - d.$x)).dynamic());
+    sep_xyz!(($x, $y, $z, $s) => let cof1: [sub1], cof2: [sub2], cof3: [sub3] = $s.scale_expansion(a.$z - d.$z));
     let det_hi = cof1 + cof2 + cof3;
     let det_approx = det_hi.approximate();
 
@@ -109,21 +155,13 @@ fn orient_3d_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3, det_sum: f64) -> f64 {
     }
 
     // Correction factor for order ε² error bound
-    let ax = two_sum(a.x, -d.x);
-    let ay = two_sum(a.y, -d.y);
-    let az = two_sum(a.z, -d.z);
-    let bx = two_sum(b.x, -d.x);
-    let by = two_sum(b.y, -d.y);
-    let bz = two_sum(b.z, -d.z);
-    let cx = two_sum(c.x, -d.x);
-    let cy = two_sum(c.y, -d.y);
-    let cz = two_sum(c.z, -d.z);
-    let cof1_m1 = az[0] * (bx[1] * cy[1] - by[1] * cx[1]);
-    let cof2_m1 = ax[0] * (by[1] * cz[1] - bz[1] * cy[1]);
-    let cof3_m1 = ay[0] * (bz[1] * cx[1] - bx[1] * cz[1]);
-    let cof1_m2 = az[1] * ((bx[0] * cy[1] + bx[1] * cy[0]) - (by[0] * cx[1] + by[1] * cx[0]));
-    let cof2_m2 = ax[1] * ((by[0] * cz[1] + by[1] * cz[0]) - (bz[0] * cy[1] + bz[1] * cy[0]));
-    let cof3_m2 = ay[1] * ((bz[0] * cx[1] + bz[1] * cx[0]) - (bx[0] * cz[1] + bx[1] * cz[0]));
+    sep_xyz!(($x, $y, $z) => let ax, ay, az = two_sum(a.$x, -d.$x));
+    sep_xyz!(($x, $y, $z) => let bx, by, bz = two_sum(b.$x, -d.$x));
+    sep_xyz!(($x, $y, $z) => let cx, cy, cz = two_sum(c.$x, -d.$x));
+    sep_xyz!(($x, $y, $z) => let cof1_m1, cof2_m1, cof3_m1 =
+        paste!([<a$z>][0] * ([<b$x>][1] * [<c$y>][1] - [<b$y>][1] * [<c$x>][1])));
+    sep_xyz!(($x, $y, $z) => let cof1_m2, cof2_m2, cof3_m2 =
+        paste!([<a$z>][1] * (([<b$x>][0] * [<c$y>][1] + [<b$x>][1] * [<c$y>][0]) - ([<b$y>][0] * [<c$x>][1] + [<b$y>][1] * [<c$x>][0]))));
     let det = cof1_m1 + cof2_m1 + cof3_m1 + cof1_m2 + cof2_m2 + cof3_m2 + det_approx;
 
     if det.abs() >= ORIENT_3D_BOUND_C1 * det_approx + ORIENT_3D_BOUND_C2 * det_sum {
@@ -132,19 +170,24 @@ fn orient_3d_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3, det_sum: f64) -> f64 {
 
     // Exact result time!
     let det_m1 = sub1.scale_expansion(az[0]) + sub2.scale_expansion(ax[0]) + sub3.scale_expansion(ay[0]);
-    let cof11 = (two_product(bx[0], cy[1]) + two_product(bx[1], cy[0]) + two_product(bx[0], cy[0])).dynamic();
-    let cof21 = (two_product(by[0], cz[1]) + two_product(by[1], cz[0]) + two_product(by[0], cz[0])).dynamic();
-    let cof31 = (two_product(bz[0], cx[1]) + two_product(bz[1], cx[0]) + two_product(bz[0], cx[0])).dynamic();
-    let cof12 = (two_product(by[0], cx[1]) + two_product(by[1], cx[0]) + two_product(by[0], cx[0])).dynamic();
-    let cof22 = (two_product(bz[0], cy[1]) + two_product(bz[1], cy[0]) + two_product(bz[0], cy[0])).dynamic();
-    let cof32 = (two_product(bx[0], cz[1]) + two_product(bx[1], cz[0]) + two_product(bx[0], cz[0])).dynamic();
-    let cof1 = cof11 - cof12;
-    let cof2 = cof21 - cof22;
-    let cof3 = cof31 - cof32;
+    sep_xyz!(($x, $y, $z) => let cof1x, cof1y, cof1z =
+        paste!((two_product([<b$x>][0], [<c$y>][1]) + two_product([<b$x>][1], [<c$y>][0]) + two_product([<b$x>][0], [<c$y>][0])).dynamic()));
+    sep_xyz!(($x, $y, $z) => let cof2x, cof2y, cof2z =
+        paste!((two_product([<b$y>][0], [<c$x>][1]) + two_product([<b$y>][1], [<c$x>][0]) + two_product([<b$y>][0], [<c$x>][0])).dynamic()));
+    sep_xyz!(($x, $y, $z) => let cof1, cof2, cof3 = paste!([<cof1$x>] - [<cof2$x>]));
     let det_m2 = cof1.scale_expansion(az[1]) + cof2.scale_expansion(ax[1]) + cof3.scale_expansion(ay[1]);
     let det_lo = cof1.scale_expansion(az[0]) + cof2.scale_expansion(ax[0]) + cof3.scale_expansion(ay[0]);
     let det = (det_hi + det_m1) + (det_m2 + det_lo);
     det.highest_magnitude()
+}
+
+/// Calculates the orientation of points `a`, `b`, `c`, `d` in a space.
+/// Returns a positive number if `b`→`c`→`d` defines a left turn when looked at from `a`,
+/// a negative number if they define a right turn,
+/// and 0 if `a`, `b`, `c`, `d` are coplanar.
+#[rustfmt::skip]
+pub fn in_circle_2d(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> f64 {
+    todo!()
 }
 
 #[cfg(test)]
