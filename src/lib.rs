@@ -11,7 +11,7 @@ extern crate nalgebra;
 
 mod geo;
 
-pub use geo::orient_2d;
+pub use geo::{orient_2d, orient_3d};
 
 use generic_array::{sequence::Lengthen, ArrayLength, GenericArray};
 use std::ops::{Add, Neg, Sub, Div, Index, Mul, RangeTo};
