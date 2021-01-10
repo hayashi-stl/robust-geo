@@ -13,10 +13,11 @@ extern crate paste;
 
 mod geo;
 
-pub use geo::{orient_2d, orient_3d};
+pub use geo::{in_circle, in_sphere, orient_2d, orient_3d};
 
 use generic_array::{sequence::Lengthen, ArrayLength, GenericArray};
-use std::ops::{Add, Neg, Sub, Div, Index, Mul, RangeTo};
+use std::fmt::Debug;
+use std::ops::{Add, Div, Index, Mul, Neg, RangeTo, Sub};
 use std::{marker::PhantomData, mem::MaybeUninit};
 use typenum::{Greater, Unsigned, U0, U1, U2};
 
@@ -246,7 +247,7 @@ trait Expansion: Default + Index<usize, Output = f64> {
             for i in (0..self.len()).rev() {
                 if self[i] != 0.0 {
                     return self[i];
-                } 
+                }
             }
             0.0
         }
@@ -341,7 +342,7 @@ macro_rules! impl_neg_fixed {
         }
     };
 }
-impl_neg_fixed!(  );
+impl_neg_fixed!();
 impl_neg_fixed!('a);
 
 macro_rules! impl_sub_fixed {
@@ -465,6 +466,15 @@ fn two_product(a: f64, b: f64) -> FixedExpansion<NAdj, U2> {
     FixedExpansion::new([a_lo * b_lo - err, x])
 }
 
+/// Constructs an expansion from the product of `a` and `a`.
+/// Special case of `two_product`.
+fn square(a: f64) -> FixedExpansion<NAdj, U2> {
+    let x = a * a;
+    let [a_lo, a_hi] = split(a);
+    let err = x - a_hi * a_hi - ((a_hi + a_hi) * a_lo);
+    FixedExpansion::new([a_lo * a_lo - err, x])
+}
+
 /// An expansion whose size is stored explicitly,
 /// but (for now) still has an upper bound for size.
 #[derive(Clone, Debug)]
@@ -564,15 +574,16 @@ macro_rules! impl_neg_dynamic {
 
             fn neg(self) -> Self::Output {
                 let mut res = DynamicExpansion::<P, N>::default();
-                for i in 0..N::USIZE {
+                for i in 0..self.len {
                     res.set(i, -self[i]);
                 }
+                res.len = self.len;
                 res
             }
         }
     };
 }
-impl_neg_dynamic!(  );
+impl_neg_dynamic!();
 impl_neg_dynamic!('a);
 
 macro_rules! impl_sub_dynamic {
@@ -600,6 +611,30 @@ impl_sub_dynamic!('a,   , &);
 impl_sub_dynamic!(  , 'b,  );
 impl_sub_dynamic!('a, 'b,  );
 
+macro_rules! impl_mul_dynamic {
+    ($($a:lifetime)?, $($b:lifetime)?, $($and:tt)?) => {
+        impl<$($a,)? $($b,)? P: Property, P2: Property, N: Length, N2: Length> Mul<$(&$b)? DynamicExpansion<P2, N2>>
+            for $(&$a)? DynamicExpansion<P, N>
+        where
+            <P as Min<P2>>::Output: StronglyNonoverlapping,
+            P: Min<P2>,
+            N: Mul<U2>,
+            <N as Mul<U2>>::Output: Mul<N2> + Length,
+            <<N as Mul<U2>>::Output as Mul<N2>>::Output: Length,
+            N2: ArrayLength<usize>,
+        {
+            type Output = DynamicExpansion<SNOver, <<N as Mul<U2>>::Output as Mul<N2>>::Output>;
+
+            fn mul(self, rhs: $(&$b)? DynamicExpansion<P2, N2>) -> Self::Output {
+                self.product(&rhs)
+            }
+        }
+    };
+}
+impl_mul_dynamic!(  ,   , &);
+impl_mul_dynamic!('a,   , &);
+impl_mul_dynamic!(  , 'b,  );
+impl_mul_dynamic!('a, 'b,  );
 
 impl<P: Property, N: Length> DynamicExpansion<P, N> {
     /// Only to be used for testing
@@ -674,6 +709,163 @@ impl<P: Property, N: Length> DynamicExpansion<P, N> {
         }
 
         exp.len = exp_i;
+        exp
+    }
+
+    // Uses `self` as a buffer, disregarding `self.len`
+    fn fast_expansion_sum_buf(
+        &mut self,
+        start_a: usize,
+        len_a: usize,
+        start_b: usize,
+        len_b: usize,
+    ) -> usize
+    where
+        P: StronglyNonoverlapping,
+    {
+        // Needed for merging; in-place merge is not happening
+        let mut exp = Self::default();
+
+        let end_a = start_a + len_a;
+        let end_b = start_b + len_b;
+
+        // Merge
+        let mut i = start_a;
+        let mut j = start_b;
+        for k in 0..(len_a + len_b) {
+            if i < end_a && (j >= end_b || self[i] < self[j]) {
+                exp.set(k, self[i]);
+                i += 1;
+            } else {
+                exp.set(k, self[j]);
+                j += 1;
+            }
+        }
+
+        // Initial fast_two_sum would fail, and besides,
+        // the result is correct as is
+        if len_a + len_b < 2 {
+            return if len_a + len_b == 1 && exp[0] != 0.0 {
+                self.set(start_a, exp[0]);
+                1
+            } else {
+                0
+            };
+        }
+
+        // Do the summing
+        let mut buf_i = start_a;
+        let res = fast_two_sum(exp[1], exp[0]);
+        let mut sum = res[1];
+
+        if res[0] != 0.0 {
+            self.set(buf_i, res[0]);
+            buf_i += 1;
+        }
+
+        for i in 2..(len_a + len_b) {
+            let res = two_sum(sum, exp[i]);
+            sum = res[1];
+
+            if res[0] != 0.0 {
+                self.set(buf_i, res[0]);
+                buf_i += 1;
+            }
+        }
+
+        if sum != 0.0 {
+            self.set(buf_i, sum);
+            buf_i += 1;
+        }
+
+        buf_i - start_a
+    }
+
+    /// Scale expansion to a buffer.
+    /// Takes a buffer and start index and returns the length of the result.
+    fn scale_expansion_buf<P2: Property, N2: Length>(
+        &self,
+        b: f64,
+        buf: &mut DynamicExpansion<P2, N2>,
+        start: usize,
+    ) -> usize
+    where
+        Self: ExpansionKind<P, <N as Mul<U2>>::Output>,
+        N: Mul<U2>,
+        <N as Mul<U2>>::Output: Length,
+    {
+        if self.len() == 0 {
+            return 0;
+        }
+
+        let mut buf_i = start;
+
+        let res = two_product(self[0], b);
+        let mut prod = res[1];
+
+        if !Self::ZERO_ELIMINATE || res[0] != 0.0 {
+            buf.set(buf_i, res[0]);
+            buf_i += 1;
+        }
+
+        for i in 1..self.len() {
+            let res1 = two_product(self[i], b);
+            let res2 = two_sum(res1[0], prod);
+            let res3 = fast_two_sum(res1[1], res2[1]);
+            prod = res3[1];
+
+            for res in vec![res2[0], res3[0]] {
+                if !Self::ZERO_ELIMINATE || res != 0.0 {
+                    buf.set(buf_i, res);
+                    buf_i += 1;
+                }
+            }
+        }
+
+        if !Self::ZERO_ELIMINATE || prod != 0.0 {
+            buf.set(buf_i, prod);
+            buf_i += 1;
+        }
+
+        buf_i - start
+    }
+
+    /// Multiplies this expansion by another expansion.
+    fn product<P2: Property, N2: Length>(
+        &self,
+        other: &DynamicExpansion<P2, N2>,
+    ) -> DynamicExpansion<SNOver, <<N as Mul<U2>>::Output as Mul<N2>>::Output>
+    where
+        <P as Min<P2>>::Output: StronglyNonoverlapping,
+        P: Min<P2>,
+        N: Mul<U2>,
+        <N as Mul<U2>>::Output: Length + Mul<N2>,
+        <<N as Mul<U2>>::Output as Mul<N2>>::Output: Length,
+        N2: ArrayLength<usize>,
+    {
+        let mut exp =
+            DynamicExpansion::<SNOver, <<N as Mul<U2>>::Output as Mul<N2>>::Output>::default();
+
+        let mut lengths = GenericArray::<usize, N2>::default();
+        for i in 0..other.len {
+            lengths[i] = self.scale_expansion_buf(other[i], &mut exp, 2 * self.len * i);
+        }
+
+        for step in (0..).map(|i| 1 << i).take_while(|i| *i < other.len) {
+            for i in (0..)
+                .map(|i| i * 2 * step)
+                .take_while(|i| i + step < other.len)
+            {
+                lengths[i] = exp.fast_expansion_sum_buf(
+                    2 * self.len * i,
+                    lengths[i],
+                    2 * self.len * (i + step),
+                    lengths[i + step],
+                );
+            }
+        }
+
+        exp.len = lengths[0];
         exp
     }
 }
@@ -1082,11 +1274,127 @@ mod tests {
         let res = exp.highest_magnitude();
         assert_eq!(res, e(-1.0, 53));
     }
-    
+
     #[test]
     fn test_highest_magnitude_top_zero() {
         let exp = FixedExpansion::<NAdj, U3>::new([1.0, e(-1.0, 53), 0.0]);
         let res = exp.highest_magnitude();
         assert_eq!(res, e(-1.0, 53));
+    }
+
+    #[test]
+    fn test_product_zero() {
+        // One or both operands are 0
+        let exp_0 = DynamicExpansion::<NAdj, U1>::with_len([0.0], 0);
+        let res = exp_0.product(&exp_0);
+        assert_eq!(res.slice(), [] as [f64; 0]);
+
+        let exp1 = DynamicExpansion::<NAdj, U1>::with_len([5.5], 1);
+        let res = exp_0.product(&exp1);
+        assert_eq!(res.slice(), [] as [f64; 0]);
+        let res = exp1.product(&exp_0);
+        assert_eq!(res.slice(), [] as [f64; 0]);
+
+        let exp1 = DynamicExpansion::<NAdj, U2>::with_len([e(3.0, -20), 3.25], 2);
+        let res = exp_0.product(&exp1);
+        assert_eq!(res.slice(), [] as [f64; 0]);
+        let res = exp1.product(&exp_0);
+        assert_eq!(res.slice(), [] as [f64; 0]);
+    }
+
+    #[test]
+    fn test_product_single_low_precision() {
+        // Result can fit in a float
+        let exp1 = DynamicExpansion::<NAdj, U1>::with_len([2.0], 1);
+        let exp2 = DynamicExpansion::<NAdj, U1>::with_len([1.75], 1);
+        let res = exp1.product(&exp2);
+        assert_eq!(res.slice(), [3.5]);
+        let res = exp2.product(&exp1);
+        assert_eq!(res.slice(), [3.5]);
+    }
+
+    #[test]
+    fn test_product_single_high_precision() {
+        // Result can't fit in a float
+        let exp1 = DynamicExpansion::<NAdj, U1>::with_len([1.5], 1);
+        let exp2 = DynamicExpansion::<NAdj, U1>::with_len([e(1.0, -52) + 1.0], 1);
+        let res = exp1.product(&exp2);
+        assert_eq!(res.slice(), [e(-1.0, -53), 1.5 + e(1.0, -51)]);
+        let res = exp2.product(&exp1);
+        assert_eq!(res.slice(), [e(-1.0, -53), 1.5 + e(1.0, -51)]);
+    }
+
+    #[test]
+    fn test_product_multiple() {
+        // Input is longer
+        let exp1 = DynamicExpansion::<NAdj, U2>::with_len([e(1.0, -53), 1.0], 2);
+        let exp2 = DynamicExpansion::<NAdj, U1>::with_len([5.0], 1);
+        let res = exp1.product(&exp2);
+        assert_eq!(res.slice(), [e(-3.0, -53), 5.0 + e(1.0, -50)]);
+        let res = exp2.product(&exp1);
+        assert_eq!(res.slice(), [e(-3.0, -53), 5.0 + e(1.0, -50)]);
+
+        // Needs all 4 expansion components
+        let exp1 = DynamicExpansion::<NAdj, U2>::with_len([1025.0, e(1025.0, 200)], 2);
+        let exp2 = DynamicExpansion::<NAdj, U1>::with_len([1.0 + e(1.0, 50)], 1);
+        let res = exp1.product(&exp2);
+        assert_eq!(
+            res.slice(),
+            [
+                1.0,
+                e(1.0, 10) + e(1.0, 50) + e(1.0, 60),
+                e(1.0, 200),
+                e(1.0, 210) + e(1.0, 250) + e(1.0, 260)
+            ]
+        );
+        let res = exp2.product(&exp1);
+        assert_eq!(
+            res.slice(),
+            [
+                1.0,
+                e(1.0, 10) + e(1.0, 50) + e(1.0, 60),
+                e(1.0, 200),
+                e(1.0, 210) + e(1.0, 250) + e(1.0, 260)
+            ]
+        );
+    }
+
+    #[test]
+    fn test_product_non_power_of_2_len() {
+        // Length bound on expansion is not a power of 2
+        let exp1 = DynamicExpansion::<NAdj, U3>::with_len([1.0, e(1.0, 60), e(1.0, 120)], 3);
+        let exp2 = DynamicExpansion::<NAdj, U2>::with_len([3.0, e(5.0, 180)], 2);
+        let res = exp1.product(&exp2);
+        assert_eq!(
+            res.slice(),
+            [
+                3.0,
+                e(3.0, 60),
+                e(3.0, 120),
+                e(5.0, 180),
+                e(5.0, 240),
+                e(5.0, 300)
+            ]
+        );
+        let res = exp2.product(&exp1);
+        assert_eq!(
+            res.slice(),
+            [
+                3.0,
+                e(3.0, 60),
+                e(3.0, 120),
+                e(5.0, 180),
+                e(5.0, 240),
+                e(5.0, 300)
+            ]
+        );
+    }
+
+    #[test]
+    fn test_subtraction_cancel() {
+        // Regression test
+        let exp = DynamicExpansion::<NAdj, U1>::with_len([0.8867926597595215], 1);
+        let res = &exp - &exp;
+        assert_eq!(res.slice(), [] as [f64; 0]);
     }
 }
