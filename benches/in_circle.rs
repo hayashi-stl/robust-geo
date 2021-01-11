@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use float_expansion::in_circle;
 
 use nalgebra::{Matrix2, Vector2};
@@ -29,15 +29,11 @@ fn grid(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("in_circle_grid", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d]| in_circle(a, b, c, d))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d]| {
+                in_circle(*a, *b, *c, *d);
+            })
+        })
     });
 }
 
@@ -57,15 +53,11 @@ fn uniform_random(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("in_circle_uniform_random", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d]| in_circle(a, b, c, d))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d]| {
+                in_circle(*a, *b, *c, *d);
+            })
+        })
     });
 }
 
@@ -91,15 +83,11 @@ fn near_cocircular(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("in_circle_near_cocircular", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d]| in_circle(a, b, c, d))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d]| {
+                in_circle(*a, *b, *c, *d);
+            })
+        })
     });
 }
 
@@ -138,15 +126,11 @@ fn cocircular(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("in_circle_cocircular", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d]| in_circle(a, b, c, d))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d]| {
+                in_circle(*a, *b, *c, *d);
+            })
+        })
     });
 }
 

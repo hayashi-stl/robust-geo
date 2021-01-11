@@ -938,7 +938,7 @@ mod test {
             }
         }
 
-        for i in 0..1000 {
+        for _ in 0..1000 {
             let x = abs.sample(&mut rng) as f64 / 4096.0;
             let y = abs.sample(&mut rng) as f64 / 4096.0;
             let z = abs.sample(&mut rng) as f64 / 4096.0;

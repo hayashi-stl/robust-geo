@@ -3,11 +3,9 @@
 //! Fast Robust Geometric Predicates](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf)
 //! in a more Rusty style.
 //! Double precision only.
-#[macro_use]
-extern crate typenum;
-#[macro_use]
 extern crate generic_array;
 extern crate nalgebra;
+extern crate typenum;
 #[macro_use]
 extern crate paste;
 
@@ -15,11 +13,11 @@ mod geo;
 
 pub use geo::{in_circle, in_sphere, orient_2d, orient_3d};
 
-use generic_array::{sequence::Lengthen, ArrayLength, GenericArray};
+use generic_array::{ArrayLength, GenericArray};
 use std::fmt::Debug;
-use std::ops::{Add, Div, Index, Mul, Neg, RangeTo, Sub};
+use std::ops::{Add, Index, Mul, Neg, Sub};
 use std::{marker::PhantomData, mem::MaybeUninit};
-use typenum::{Greater, Unsigned, U0, U1, U2};
+use typenum::{U1, U2};
 
 /// Consecutive terms in the expansion do not overlap
 /// even if the smaller term is multiplied by 2.
@@ -426,7 +424,7 @@ impl<P: Property, N: Length> FixedExpansion<P, N> {
 
     /// Converts this to a dynamic expression
     fn dynamic(self) -> DynamicExpansion<P, N> {
-        DynamicExpansion::with_len(self.arr, N::USIZE)
+        DynamicExpansion::new(self.arr)
     }
 }
 
@@ -638,8 +636,25 @@ impl_mul_dynamic!('a, 'b,  );
 
 impl<P: Property, N: Length> DynamicExpansion<P, N> {
     /// Only to be used for testing
+    #[allow(dead_code)]
     fn slice(&self) -> &[f64] {
         unsafe { std::mem::transmute::<&[MaybeUninit<f64>], &[f64]>(&self.arr[..self.len]) }
+    }
+
+    /// Performs zero-elimination
+    fn new(arr: GenericArray<f64, N>) -> Self {
+        let mut exp = Self::default();
+        let mut exp_i = 0;
+        for i in 0..N::USIZE {
+            let val = unsafe { *arr.get_unchecked(i) };
+            if val != 0.0 {
+                exp.set(exp_i, val);
+                exp_i += 1;
+            }
+        }
+
+        exp.len = exp_i;
+        exp
     }
 
     /// Adds another expansion to this expansion

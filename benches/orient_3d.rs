@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use float_expansion::orient_3d;
 
 use nalgebra::Vector3;
@@ -26,15 +26,11 @@ fn grid(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("orient_3d_grid", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d]| orient_3d(a, b, c, d))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d]| {
+                orient_3d(*a, *b, *c, *d);
+            })
+        })
     });
 }
 
@@ -54,15 +50,11 @@ fn uniform_random(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("orient_3d_uniform_random", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d]| orient_3d(a, b, c, d))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d]| {
+                orient_3d(*a, *b, *c, *d);
+            })
+        })
     });
 }
 
@@ -85,15 +77,11 @@ fn near_coplanar(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("orient_3d_near_coplanar", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d]| orient_3d(a, b, c, d))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d]| {
+                orient_3d(*a, *b, *c, *d);
+            })
+        })
     });
 }
 
@@ -120,15 +108,11 @@ fn coplanar(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("orient_3d_coplanar", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d]| orient_3d(a, b, c, d))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d]| {
+                orient_3d(*a, *b, *c, *d);
+            })
+        })
     });
 }
 

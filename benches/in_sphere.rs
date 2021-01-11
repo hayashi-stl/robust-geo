@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use float_expansion::in_sphere;
 
 use nalgebra::{Matrix3, Vector3};
@@ -30,15 +30,11 @@ fn grid(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("in_sphere_grid", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d, e]| in_sphere(a, b, c, d, e))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d, e]| {
+                in_sphere(*a, *b, *c, *d, *e);
+            })
+        })
     });
 }
 
@@ -59,15 +55,11 @@ fn uniform_random(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("in_sphere_uniform_random", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d, e]| in_sphere(a, b, c, d, e))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d, e]| {
+                in_sphere(*a, *b, *c, *d, *e);
+            })
+        })
     });
 }
 
@@ -95,15 +87,11 @@ fn near_cospherical(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("in_sphere_near_cospherical", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d, e]| in_sphere(a, b, c, d, e))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d, e]| {
+                in_sphere(*a, *b, *c, *d, *e);
+            })
+        })
     });
 }
 
@@ -151,15 +139,11 @@ fn cospherical(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("in_sphere_cospherical", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c, d, e]| in_sphere(a, b, c, d, e))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c, d, e]| {
+                in_sphere(*a, *b, *c, *d, *e);
+            })
+        })
     });
 }
 

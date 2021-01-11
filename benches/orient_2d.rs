@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use float_expansion::orient_2d;
 
 use nalgebra::Vector2;
@@ -25,15 +25,11 @@ fn grid(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("orient_2d_grid", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c]| orient_2d(a, b, c))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c]| {
+                orient_2d(*a, *b, *c);
+            })
+        })
     });
 }
 
@@ -52,15 +48,11 @@ fn uniform_random(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("orient_2d_uniform_random", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c]| orient_2d(a, b, c))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c]| {
+                orient_2d(*a, *b, *c);
+            })
+        })
     });
 }
 
@@ -80,15 +72,11 @@ fn near_collinear(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("orient_2d_near_collinear", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c]| orient_2d(a, b, c))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c]| {
+                orient_2d(*a, *b, *c);
+            })
+        })
     });
 }
 
@@ -113,15 +101,11 @@ fn collinear(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("orient_2d_collinear", move |b| {
-        b.iter_batched(
-            || data.clone(),
-            |data| {
-                data.into_iter()
-                    .map(|[a, b, c]| orient_2d(a, b, c))
-                    .collect::<Vec<_>>()
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| {
+            data.iter().for_each(|[a, b, c]| {
+                orient_2d(*a, *b, *c);
+            })
+        })
     });
 }
 
