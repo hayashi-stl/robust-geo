@@ -663,7 +663,7 @@ impl<P: Property, N: Length> DynamicExpansion<P, N> {
         let mut i = 0;
         let mut j = 0;
         for k in 0..(self.len + other.len) {
-            if i < self.len && (j >= other.len || self[i] < other[j]) {
+            if i < self.len && (j >= other.len || self[i].abs() < other[j].abs()) {
                 exp.set(k, self[i]);
                 i += 1;
             } else {
@@ -733,7 +733,7 @@ impl<P: Property, N: Length> DynamicExpansion<P, N> {
         let mut i = start_a;
         let mut j = start_b;
         for k in 0..(len_a + len_b) {
-            if i < end_a && (j >= end_b || self[i] < self[j]) {
+            if i < end_a && (j >= end_b || self[i].abs() < self[j].abs()) {
                 exp.set(k, self[i]);
                 i += 1;
             } else {
@@ -1396,5 +1396,15 @@ mod tests {
         let exp = DynamicExpansion::<NAdj, U1>::with_len([0.8867926597595215], 1);
         let res = &exp - &exp;
         assert_eq!(res.slice(), [] as [f64; 0]);
+    }
+
+    #[test]
+    fn test_fast_expansion_sum_merge_magnitudes() {
+        // Regression test
+        // Make sure magnitudes are compared instead of actual values
+        let exp1 = DynamicExpansion::<NAdj, U1>::with_len([-0.12175846854999425], 1);
+        let exp2 =
+            DynamicExpansion::<NAdj, U2>::with_len([2.0816681711721685e-17, 0.5219832265608443], 2);
+        assert_eq!((exp1 + exp2).len(), 2);
     }
 }

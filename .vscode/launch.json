@@ -7,6 +7,28 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Debug test_in_sphere_cospherical",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=float_expansion"
+                ],
+                "filter": {
+                    "name": "float_expansion",
+                    "kind": "lib"
+                }
+            },
+            "args": [
+                "test_in_sphere_cospherical",
+                "--nocapture"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Debug unit tests in library 'float_expansion'",
             "cargo": {
                 "args": [

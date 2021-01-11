@@ -157,6 +157,35 @@ macro_rules! sep_xyzw6 {
     //};
 }
 
+// 5 cyclic permutation shortcut.
+// Simplifies cofactor repetition.
+macro_rules! sep_5 {
+    (($dx:tt $x:ident, $dy:tt $y:ident, $dz:tt $z:ident, $dw:tt $w:ident, $dv:tt $u:ident $(, $d:tt $var:ident)*)
+        => let $n1:ident : [$($v1:tt)*],
+               $n2:ident : [$($v2:tt)*],
+               $n3:ident : [$($v3:tt)*],
+               $n4:ident : [$($v4:tt)*]
+               $n5:ident : [$($v5:tt)*] = $($expr:tt)*) =>
+    {
+        sep_let!(($dx $x, $dy $y, $dz $z, $dw $w, $du $u $(, $d $var)*) =>
+            let $n1: [$x, $y, $z, $w, $u, $($v1)*],
+                $n2: [$y, $z, $w, $u, $x, $($v2)*],
+                $n3: [$z, $w, $u, $x, $y, $($v3)*],
+                $n4: [$w, $u, $x, $y, $z, $($v4)*],
+                $n5: [$u, $x, $y, $z, $w, $($v5)*] = $($expr)*);
+    };
+
+    (($dx:tt $x:ident, $dy:tt $y:ident, $dz:tt $z:ident, $dw:tt $w:ident, $du:tt $u:ident)
+        => let $n1:ident, $n2:ident, $n3:ident, $n4:ident, $n5:ident = $($expr:tt)*) => {
+        sep_let!(($dx $x, $dy $y, $dz $z, $dw $w, $du $u) =>
+            let $n1: [$x, $y, $z, $w, $u],
+                $n2: [$y, $z, $w, $u, $x],
+                $n3: [$z, $w, $u, $x, $y],
+                $n4: [$w, $u, $x, $y, $z],
+                $n5: [$u, $x, $y, $z, $w] = $($expr)*);
+    };
+}
+
 // These regress performance, unfortunately
 //macro_rules! arr_let {
 //    (($($d:tt $var:ident),*) => let $name:ident : $([$($vals:tt)*]),* = $($expr:tt)*) => {
@@ -239,9 +268,11 @@ fn orient_3d_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3, det_sum: f64) -> f64 {
     det.highest_magnitude()
 }
 
-/// Returns a positive number if `d` is inside the circle that goes through `a`, `b`, `c`,
+/// Returns a positive number if `d` is inside the oriented circle that goes through `a`, `b`, `c`,
 /// a negative number if it lies outside,
 /// and 0 if `a`, `b`, `c`, `d` are cocircular.
+/// If `a`, `b`, `c` are in counterclockwise order, "inside the circle" is the inside.
+/// If `a`, `b`, `c` are in clockwise order, "inside the circle" is the outside.
 pub fn in_circle(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> f64 {
     sep_xyz!(($a, $b, $c) => let sqa, sqb, sqc = ($a.x - d.x) * ($a.x - d.x) + ($a.y - d.y) * ($a.y - d.y));
     sep_xyz!(($a, $b, $c) => let cof1, cof2, cof3 =
@@ -295,9 +326,11 @@ fn in_circle_adapt(a: Vec2, b: Vec2, c: Vec2, d: Vec2, det_sum: f64) -> f64 {
     det.highest_magnitude()
 }
 
-/// Returns a positive number if `e` is inside the sphere that goes through `a`, `b`, `c`, `d`,
+/// Returns a positive number if `e` is inside the oriented sphere that goes through `a`, `b`, `c`, `d`,
 /// a negative number if it lies outside,
 /// and 0 if `a`, `b`, `c`, `d`, `e` are cospherical.
+/// If `a`, `b`, `c`, `d` are oriented positive, "inside the sphere" is the inside.
+/// If `a`, `b`, `c`, `d` are oriented negative, "inside the sphere" is the outside.
 pub fn in_sphere(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3) -> f64 {
     // Oh boy. 4x4 determinant, *lots* of cofactors.
     sep_xyzw!(($a, $b, $c, $d) => let sqa, sqb, sqc, sqd =
@@ -338,46 +371,53 @@ fn in_sphere_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3, det_sum: f64) ->
     sep_xyzw!(($a, $b, $c, $d) => let sqa, sqb, sqc, sqd =
         paste!([<x$a>][1] * [<x$a>][1] + [<y$a>][1] * [<y$a>][1] + [<z$a>][1] * [<z$a>][1]));
     sep_xyzw!(($a, $b, $c, $d) => let sra, srb, src, srd =
-        paste!([<x$a>][0] * [<x$a>][1] + [<y$a>][0] * [<y$a>][1] + [<z$a>][0] * [<z$a>][1]));
+        paste!(([<x$a>][0] * [<x$a>][1] + [<y$a>][0] * [<y$a>][1] + [<z$a>][0] * [<z$a>][1]) * 2.0));
 
     sep_xyzw6!(($a, $b, $c, $d) => let c11, c21, c31, c41, c51, c61 =
         paste!((([<x$a>][0] * [<y$b>][1] + [<x$a>][1] * [<y$b>][0]) - ([<y$a>][0] * [<x$b>][1] + [<y$a>][1] * [<x$b>][0])) *
                ([<z$c>][1] * [<sq$d>] - [<sq$c>] * [<z$d>][1])));
     sep_xyzw6!(($a, $b, $c, $d) => let c12, c22, c32, c42, c52, c62 =
-        paste!(([<x$a>][1] * [<y$b>][1] - [<y$a>][1] - [<x$b>][1]) *
+        paste!(([<x$a>][1] * [<y$b>][1] - [<y$a>][1] * [<x$b>][1]) *
                (([<z$c>][0] * [<sq$d>] + [<z$c>][1] * [<sr$d>]) - ([<sr$c>] * [<z$d>][1] + [<sq$c>] * [<z$d>][0]))));
-    let det =
-        c11 + c21 + c31 + c41 + c51 + c61 + (c12 + c22 + c32 + c42 + c52 + c62) * 2.0 + det_approx;
+    let det = c11 + c21 + c31 + c41 + c51 + c61 + c12 + c22 + c32 + c42 + c52 + c62 + det_approx;
 
     if det.abs() >= IN_SPHERE_BOUND_C1 * det_approx.abs() + IN_SPHERE_BOUND_C2 * det_sum {
-        return det;
+        det
+    } else {
+        in_sphere_adapt2(a, b, c, d, e)
     }
+}
 
+fn in_sphere_adapt2(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3) -> f64 {
     // Exact result time!
-    // Let's be lazy
-    sep_xyzw!(($a, $b, $c, $d) => let xa, xb, xc, xd = paste!([<x$a>].dynamic()));
-    sep_xyzw!(($a, $b, $c, $d) => let ya, yb, yc, yd = paste!([<y$a>].dynamic()));
-    sep_xyzw!(($a, $b, $c, $d) => let za, zb, zc, zd = paste!([<z$a>].dynamic()));
-    sep_xyzw!(($a, $b, $c, $d) => let sqa, sqb, sqc, sqd =
-        paste!(&[<x$a>] * &[<x$a>] + &[<y$a>] * &[<y$a>] + &[<z$a>] * &[<z$a>]));
-    sep_xyzw6!(($a, $b, $c, $d) => let cof1, cof2, cof3, cof4, cof5, cof6 =
-        paste!((&[<x$a>] * &[<y$b>] - &[<y$a>] * &[<x$b>]) * (&[<z$c>] * &[<sq$d>] - &[<sq$c>] * &[<z$d>])));
-    let det = (cof1 + cof2 + cof3) + (cof4 + cof5 + cof6);
+    // Calculating the 5x5 determinant because it's less straining on the stack
+    sep_5!(($a, $b, $c, $d, $e) => let sqa, sqb, sqc, sqd, sqe =
+        (square($a.x) + square($a.y)).dynamic() + square($a.z).dynamic());
+    sep_5!(($a, $b, $c, $d, $e) => let ab, bc, cd, de, ea = (two_product($a.x, $b.y) - two_product($b.x, $a.y)).dynamic());
+    sep_5!(($a, $b, $c, $d, $e) => let ac, bd, ce, da, eb = (two_product($a.x, $c.y) - two_product($c.x, $a.y)).dynamic());
+    sep_5!(($a, $b, $c, $d, $e) => let nab, nbc, ncd, nde, nea = paste!(
+        [<$c$d>].scale_expansion($e.z) + [<$d$e>].scale_expansion($c.z) + [<$c$e>].scale_expansion(-$d.z)));
+    sep_5!(($a, $b, $c, $d, $e) => let nad, nbe, nca, ndb, nec = paste!(
+        [<$b$c>].scale_expansion($e.z) + [<$c$e>].scale_expansion($b.z) + [<$e$b>].scale_expansion($c.z)));
+    sep_5!(($a, $b, $c, $d, $e) => let cof1, cof2, cof3, cof4, cof5 = paste!(
+        (&[<n$e$a>] * &[<sq$e>] - &[<n$a$d>] * &[<sq$d>]) + (&[<n$c$a>] * &[<sq$c>] - &[<n$a$b>] * &[<sq$b>])));
+    let det = (cof1 + cof2) + (cof3 + cof4) + cof5;
     det.highest_magnitude()
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use nalgebra::Matrix2;
+    use nalgebra::{Matrix2, Matrix3};
     use rand::distributions::{Distribution, Uniform};
     use rand::seq::SliceRandom;
     use rand::Rng;
-    use rand_distr::UnitCircle;
+    use rand_distr::{UnitCircle, UnitSphere};
     use rand_pcg::Pcg64;
     use rug::Float;
 
     type Mtx2 = Matrix2<f64>;
+    type Mtx3 = Matrix3<f64>;
 
     const PCG_STATE: u128 = 0xcafef00dd15ea5e5;
     const PCG_STREAM: u128 = 0xa02bdbf7bb3c0a7ac28fa16a64abf96;
@@ -757,6 +797,167 @@ mod test {
             let d = mtxs.choose(&mut rng).unwrap() * v + offset;
 
             check_in_circle(a, b, c, d);
+        }
+    }
+
+    fn in_sphere_exact(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3) -> Float {
+        const PREC: u32 = ((f64::MANTISSA_DIGITS + 1) * 2
+            + 1
+            + f64::MANTISSA_DIGITS
+            + 1
+            + (f64::MANTISSA_DIGITS + 1) * 2
+            + 2)
+            + 5;
+        macro_rules! f {
+            ($expr:expr) => {
+                Float::with_val(PREC, $expr)
+            };
+        }
+
+        let ax = f!(&f!(a.x) - &f!(e.x));
+        let ay = f!(&f!(a.y) - &f!(e.y));
+        let az = f!(&f!(a.z) - &f!(e.z));
+        let bx = f!(&f!(b.x) - &f!(e.x));
+        let by = f!(&f!(b.y) - &f!(e.y));
+        let bz = f!(&f!(b.z) - &f!(e.z));
+        let cx = f!(&f!(c.x) - &f!(e.x));
+        let cy = f!(&f!(c.y) - &f!(e.y));
+        let cz = f!(&f!(c.z) - &f!(e.z));
+        let dx = f!(&f!(d.x) - &f!(e.x));
+        let dy = f!(&f!(d.y) - &f!(e.y));
+        let dz = f!(&f!(d.z) - &f!(e.z));
+        let aq = f!(&f!(&ax * &ax + &ay * &ay) + &az * &az);
+        let bq = f!(&f!(&bx * &bx + &by * &by) + &bz * &bz);
+        let cq = f!(&f!(&cx * &cx + &cy * &cy) + &cz * &cz);
+        let dq = f!(&f!(&dx * &dx + &dy * &dy) + &dz * &dz);
+        let cof1 = f!(&f!(&ax * &by - &bx * &ay) * &f!(&cz * &dq - &dz * &cq));
+        let cof2 = f!(&f!(&ax * &cy - &cx * &ay) * &f!(&dz * &bq - &bz * &dq));
+        let cof3 = f!(&f!(&ax * &dy - &dx * &ay) * &f!(&bz * &cq - &cz * &bq));
+        let cof4 = f!(&f!(&bx * &cy - &cx * &by) * &f!(&az * &dq - &dz * &aq));
+        let cof5 = f!(&f!(&bx * &dy - &dx * &by) * &f!(&cz * &aq - &az * &cq));
+        let cof6 = f!(&f!(&cx * &dy - &dx * &cy) * &f!(&az * &bq - &bz * &aq));
+        f!(f!(&f!(&cof1 + &cof2) + &cof3) + f!(&f!(&cof4 + &cof5) + &cof6))
+    }
+
+    fn check_in_sphere(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3) {
+        let adapt = in_sphere(a, b, c, d, e);
+        let exact = in_sphere_exact(a, b, c, d, e);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            d,
+            e,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_in_sphere_uniform_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..1000 {
+            let vals = dist.sample_iter(&mut rng).take(15).collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            let d = Vec3::new(vals[9], vals[10], vals[11]);
+            let e = Vec3::new(vals[12], vals[13], vals[14]);
+            check_in_sphere(a, b, c, d, e);
+        }
+    }
+
+    #[test]
+    fn test_in_sphere_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..1000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(15)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            let d = Vec3::new(vals[9], vals[10], vals[11]);
+            let e = Vec3::new(vals[12], vals[13], vals[14]);
+            check_in_sphere(a, b, c, d, e);
+        }
+    }
+
+    #[test]
+    fn test_in_sphere_near_cospherical() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-1.0, 1.0);
+
+        for _ in 0..1000 {
+            let vals = UnitSphere.sample_iter(&mut rng).take(5).collect::<Vec<_>>();
+            let radius = dist.sample(&mut rng);
+            let x = dist.sample(&mut rng);
+            let y = dist.sample(&mut rng);
+            let z = dist.sample(&mut rng);
+            let offset = Vec3::new(x, y, z);
+
+            let a = Vec3::new(vals[0][0], vals[0][1], vals[0][2]) * radius + offset;
+            let b = Vec3::new(vals[1][0], vals[1][1], vals[1][2]) * radius + offset;
+            let c = Vec3::new(vals[2][0], vals[2][1], vals[2][2]) * radius + offset;
+            let d = Vec3::new(vals[3][0], vals[3][1], vals[3][2]) * radius + offset;
+            let e = Vec3::new(vals[4][0], vals[4][1], vals[4][2]) * radius + offset;
+
+            check_in_sphere(a, b, c, d, e);
+        }
+    }
+
+    #[test]
+    fn test_in_sphere_cospherical() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new_inclusive(-4096, 4096);
+        let abs = Uniform::new_inclusive(0, 4096);
+        let flip = Mtx3::new(-1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+        let rot4 = Mtx3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
+        let rot3 = Mtx3::new(0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0);
+        let mut mtxs = vec![];
+
+        for i in 0..2 {
+            for j in 0..4 {
+                for k in 0..3 {
+                    mtxs.push(
+                        std::iter::repeat(rot3).take(k).product::<Mtx3>()
+                            * std::iter::repeat(rot4).take(j).product::<Mtx3>()
+                            * std::iter::repeat(flip).take(i).product::<Mtx3>(),
+                    );
+                }
+            }
+        }
+
+        for i in 0..1000 {
+            let x = abs.sample(&mut rng) as f64 / 4096.0;
+            let y = abs.sample(&mut rng) as f64 / 4096.0;
+            let z = abs.sample(&mut rng) as f64 / 4096.0;
+            let v = Vec3::new(x, y, z);
+            let cx = dist.sample(&mut rng) as f64 / 4096.0;
+            let cy = dist.sample(&mut rng) as f64 / 4096.0;
+            let cz = dist.sample(&mut rng) as f64 / 4096.0;
+            let offset = Vec3::new(cx, cy, cz);
+
+            // Reminder to use choose_multiple for the benchmark to not mix
+            // cases that have identical points and are thus more likely to
+            // get stopped at the initial floating-point calculation
+            let a = mtxs.choose(&mut rng).unwrap() * v + offset;
+            let b = mtxs.choose(&mut rng).unwrap() * v + offset;
+            let c = mtxs.choose(&mut rng).unwrap() * v + offset;
+            let d = mtxs.choose(&mut rng).unwrap() * v + offset;
+            let e = mtxs.choose(&mut rng).unwrap() * v + offset;
+
+            check_in_sphere(a, b, c, d, e);
         }
     }
 }
