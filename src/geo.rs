@@ -280,7 +280,7 @@ fn orient_3d_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3, det_sum: f64) -> f64 {
 
 /// Returns a positive number if `d` is inside the oriented circle that goes through `a`, `b`, `c`,
 /// a negative number if it lies outside,
-/// and 0 if `a`, `b`, `c`, `d` are cocircular.
+/// and 0 if `a`, `b`, `c`, `d` are cocircular or `a`, `b`, `c` are collinear.
 /// If `a`, `b`, `c` are in counterclockwise order, "inside the circle" is the inside.
 /// If `a`, `b`, `c` are in clockwise order, "inside the circle" is the outside.
 pub fn in_circle(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> f64 {
@@ -338,7 +338,7 @@ fn in_circle_adapt(a: Vec2, b: Vec2, c: Vec2, d: Vec2, det_sum: f64) -> f64 {
 
 /// Returns a positive number if `e` is inside the oriented sphere that goes through `a`, `b`, `c`, `d`,
 /// a negative number if it lies outside,
-/// and 0 if `a`, `b`, `c`, `d`, `e` are cospherical.
+/// and 0 if `a`, `b`, `c`, `d`, `e` are cospherical or `a`, `b`, `c`, `d` are coplanar.
 /// If `a`, `b`, `c`, `d` are oriented positive, "inside the sphere" is the inside.
 /// If `a`, `b`, `c`, `d` are oriented negative, "inside the sphere" is the outside.
 pub fn in_sphere(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3) -> f64 {

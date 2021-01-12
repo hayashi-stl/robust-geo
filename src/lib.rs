@@ -1,6 +1,6 @@
 //! Implementation of the floating point expansions found in
 //! [Adaptive Precision Floating-Point Arithmetic and
-//! Fast Robust Geometric Predicates](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf)
+//! Fast Robust Geometric Predicates by Shewchuk](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf)
 //! in a more Rusty style.
 //! Double precision only.
 extern crate generic_array;

@@ -1,5 +1,5 @@
 [package]
-name = "float_expansion"
+name = "robust-geo"
 version = "0.1.0"
 authors = ["Joshua Ani <josh4820@gmail.com>"]
 edition = "2018"

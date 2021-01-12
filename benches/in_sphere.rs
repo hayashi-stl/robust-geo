@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use float_expansion::in_sphere;
+use robust_geo::in_sphere;
 
 use nalgebra::{Matrix3, Vector3};
 use rand::distributions::{Distribution, Uniform};
