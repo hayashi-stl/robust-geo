@@ -29,6 +29,16 @@ const IN_SPHERE_BOUND_B: f64 = (5.0 + 72.0 * EPSILON) * EPSILON;
 const IN_SPHERE_BOUND_C1: f64 = (3.0 + 8.0 * EPSILON) * EPSILON;
 const IN_SPHERE_BOUND_C2: f64 = (71.0 + 1408.0 * EPSILON) * EPSILON * EPSILON;
 
+const MAGNITUDE_CMP_2D_BOUND_A: f64 = (2.0 + 8.0 * EPSILON) * EPSILON;
+
+const MAGNITUDE_CMP_3D_BOUND_A: f64 = (3.0 + 12.0 * EPSILON) * EPSILON;
+
+const SIGN_DET_X_X2Y2_BOUND_A: f64 = (5.0 + 32.0 * EPSILON) * EPSILON;
+
+const SIGN_DET_X_X2Y2Z2_BOUND_A: f64 = (6.0 + 32.0 * EPSILON) * EPSILON;
+
+const SIGN_DET_X_Y_X2Y2Z2_BOUND_A: f64 = (9.0 + 64.0 * EPSILON) * EPSILON;
+
 /// Calculates the orientation of points `a`, `b`, `c` in a plane.
 /// Returns a positive number if they define a left turn,
 /// a negative number if they define a right turn,
@@ -338,12 +348,12 @@ pub fn in_sphere(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3) -> f64 {
     sep_xyzw6!(($a, $b, $c, $d) => let cof1, cof2, cof3, cof4, cof5, cof6 =
         paste!((($a.x - e.x) * ($b.y - e.y) - ($a.y - e.y) * ($b.x - e.x)) *
                (($c.z - e.z) * [<sq$d>] - [<sq$c>] * ($d.z - e.z))));
-    let det = cof1 + cof2 + cof3 + cof4 + cof5 + cof6;
+    let det = (cof1 + cof2 + cof3) + (cof4 + cof5 + cof6);
 
     sep_xyzw6!(($a, $b, $c, $d) => let cof1_sum, cof2_sum, cof3_sum, cof4_sum, cof5_sum, cof6_sum =
         paste!(((($a.x - e.x) * ($b.y - e.y)).abs() + (($a.y - e.y) * ($b.x - e.x)).abs()) *
                ((($c.z - e.z) * [<sq$d>]).abs() + ([<sq$c>] * ($d.z - e.z)).abs())));
-    let det_sum = cof1_sum + cof2_sum + cof3_sum + cof4_sum + cof5_sum + cof6_sum;
+    let det_sum = (cof1_sum + cof2_sum + cof3_sum) + (cof4_sum + cof5_sum + cof6_sum);
 
     if det.abs() >= det_sum * IN_SPHERE_BOUND_A {
         det
@@ -379,7 +389,9 @@ fn in_sphere_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3, det_sum: f64) ->
     sep_xyzw6!(($a, $b, $c, $d) => let c12, c22, c32, c42, c52, c62 =
         paste!(([<x$a>][1] * [<y$b>][1] - [<y$a>][1] * [<x$b>][1]) *
                (([<z$c>][0] * [<sq$d>] + [<z$c>][1] * [<sr$d>]) - ([<sr$c>] * [<z$d>][1] + [<sq$c>] * [<z$d>][0]))));
-    let det = c11 + c21 + c31 + c41 + c51 + c61 + c12 + c22 + c32 + c42 + c52 + c62 + det_approx;
+    let det = ((c11 + c21 + c31) + (c41 + c51 + c61))
+        + ((c12 + c22 + c32) + (c42 + c52 + c62))
+        + det_approx;
 
     if det.abs() >= IN_SPHERE_BOUND_C1 * det_approx.abs() + IN_SPHERE_BOUND_C2 * det_sum {
         det
@@ -402,6 +414,153 @@ fn in_sphere_adapt2(a: Vec3, b: Vec3, c: Vec3, d: Vec3, e: Vec3) -> f64 {
     sep_5!(($a, $b, $c, $d, $e) => let cof1, cof2, cof3, cof4, cof5 = paste!(
         (&[<n$e$a>] * &[<sq$e>] - &[<n$a$d>] * &[<sq$d>]) + (&[<n$c$a>] * &[<sq$c>] - &[<n$a$b>] * &[<sq$b>])));
     let det = (cof1 + cof2) + (cof3 + cof4) + cof5;
+    det.highest_magnitude()
+}
+
+/// Compares the magnitude of `a` and `b`
+/// and returns a positive number if `a`'s magnitude is greater,
+/// a negative number if `b`'s magnitude is greater,
+/// and 0 if their magnitudes equal.
+pub fn magnitude_cmp_2d(a: Vec2, b: Vec2) -> f64 {
+    let sqa = a.x * a.x + a.y * a.y;
+    let sqb = b.x * b.x + b.y * b.y;
+    let det = sqa - sqb;
+
+    if det.abs() >= (sqa + sqb) * MAGNITUDE_CMP_2D_BOUND_A {
+        det
+    } else {
+        magnitude_cmp_2d_adapt(a, b)
+    }
+}
+
+fn magnitude_cmp_2d_adapt(a: Vec2, b: Vec2) -> f64 {
+    let sqa = (square(a.x) + square(a.y)).dynamic();
+    let sqb = (square(b.x) + square(b.y)).dynamic();
+    (sqa - sqb).highest_magnitude()
+}
+
+/// Compares the magnitude of `a` and `b`
+/// and returns a positive number if `a`'s magnitude is greater,
+/// a negative number if `b`'s magnitude is greater,
+/// and 0 if their magnitudes equal.
+pub fn magnitude_cmp_3d(a: Vec3, b: Vec3) -> f64 {
+    let sqa = a.x * a.x + a.y * a.y + a.z * a.z;
+    let sqb = b.x * b.x + b.y * b.y + b.z * b.z;
+    let det = sqa - sqb;
+
+    if det.abs() >= (sqa + sqb) * MAGNITUDE_CMP_3D_BOUND_A {
+        det
+    } else {
+        magnitude_cmp_3d_adapt(a, b)
+    }
+}
+
+fn magnitude_cmp_3d_adapt(a: Vec3, b: Vec3) -> f64 {
+    let sqa = (square(a.x) + square(a.y)).dynamic() + square(a.z).dynamic();
+    let sqb = (square(b.x) + square(b.y)).dynamic() + square(b.z).dynamic();
+    (sqa - sqb).highest_magnitude()
+}
+
+/// Computes the determinant of the following matrix
+/// ```notrust
+/// ┌─                       ─┐
+/// │ a.x   a.x^2 + a.y^2   1 │
+/// │ b.x   b.x^2 + b.y^2   1 │
+/// │ c.x   c.x^2 + c.y^2   1 │
+/// └─                       ─┘
+/// ```
+/// and returns a number with the same sign as the determinant,
+/// or 0 if the determinant is 0
+pub fn sign_det_x_x2y2(a: Vec2, b: Vec2, c: Vec2) -> f64 {
+    sep_xyz!(($a, $b, $c) => let sqa, sqb, sqc = $a.x * $a.x + $a.y * $a.y);
+    sep_xyz!(($a, $b, $c) => let cof1, cof2, cof3 = paste!([<sq$a>] * ($c.x - $b.x)));
+    let det = cof1 + cof2 + cof3;
+
+    sep_xyz!(($a, $b, $c) => let cof1_sum, cof2_sum, cof3_sum = paste!([<sq$a>] * ($c.x - $b.x).abs()));
+    let det_sum = cof1_sum + cof2_sum + cof3_sum;
+
+    if det.abs() >= det_sum * SIGN_DET_X_X2Y2_BOUND_A {
+        det
+    } else {
+        sign_det_x_x2y2_adapt(a, b, c)
+    }
+}
+
+fn sign_det_x_x2y2_adapt(a: Vec2, b: Vec2, c: Vec2) -> f64 {
+    // Compute exact value at least for now
+    sep_xyz!(($a, $b, $c) => let sqa, sqb, sqc = (square($a.x) + square($a.y)).dynamic());
+    sep_xyz!(($a, $b, $c) => let cof1, cof2, cof3 = paste!([<sq$a>] * two_sum($c.x, -$b.x).dynamic()));
+    let det = cof1 + cof2 + cof3;
+    det.highest_magnitude()
+}
+
+/// Computes the determinant of the following matrix
+/// ```notrust
+/// ┌─                               ─┐
+/// │ a.x   a.x^2 + a.y^2 + a.z^2   1 │
+/// │ b.x   b.x^2 + b.y^2 + b.z^2   1 │
+/// │ c.x   c.x^2 + c.y^2 + c.z^2   1 │
+/// └─                               ─┘
+/// ```
+/// and returns a number with the same sign as the determinant,
+/// or 0 if the determinant is 0
+pub fn sign_det_x_x2y2z2(a: Vec3, b: Vec3, c: Vec3) -> f64 {
+    sep_xyz!(($a, $b, $c) => let sqa, sqb, sqc = $a.x * $a.x + $a.y * $a.y + $a.z * $a.z);
+    sep_xyz!(($a, $b, $c) => let cof1, cof2, cof3 = paste!([<sq$a>] * ($c.x - $b.x)));
+    let det = cof1 + cof2 + cof3;
+
+    sep_xyz!(($a, $b, $c) => let cof1_sum, cof2_sum, cof3_sum = paste!([<sq$a>] * ($c.x.abs() + $b.x.abs())));
+    let det_sum = cof1_sum + cof2_sum + cof3_sum;
+
+    if det.abs() >= det_sum * SIGN_DET_X_X2Y2Z2_BOUND_A {
+        det
+    } else {
+        sign_det_x_x2y2z2_adapt(a, b, c)
+    }
+}
+
+fn sign_det_x_x2y2z2_adapt(a: Vec3, b: Vec3, c: Vec3) -> f64 {
+    // Compute exact value at least for now
+    sep_xyz!(($a, $b, $c) => let sqa, sqb, sqc = (square($a.x) + square($a.y)).dynamic() + square($a.z).dynamic());
+    sep_xyz!(($a, $b, $c) => let cof1, cof2, cof3 = paste!([<sq$a>] * two_sum($c.x, -$b.x).dynamic()));
+    let det = cof1 + cof2 + cof3;
+    det.highest_magnitude()
+}
+
+/// Computes the determinant of the following matrix
+/// ```notrust
+/// ┌─                                     ─┐
+/// │ a.x   a.y   a.x^2 + a.y^2 + a.z^2   1 │
+/// │ b.x   b.y   b.x^2 + b.y^2 + b.z^2   1 │
+/// │ c.x   c.y   c.x^2 + c.y^2 + c.z^2   1 │
+/// │ d.x   d.y   d.x^2 + d.y^2 + d.z^2   1 │
+/// └─                                     ─┘
+/// ```
+/// and returns a number with the same sign as the determinant,
+/// or 0 if the determinant is 0
+pub fn sign_det_x_y_x2y2z2(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> f64 {
+    sep_xyzw!(($a, $b, $c, $d) => let sqa, sqb, sqc, sqd = $a.x * $a.x + $a.y * $a.y + $a.z * $a.z);
+    sep_xyzw6!(($a, $b, $c, $d) => let cof1, cof2, cof3, cof4, cof5, cof6 =
+        paste!(($a.x * $b.y - $a.y * $b.x) * ([<sq$c>] - [<sq$d>])));
+    let det = (cof1 + cof2 + cof3) + (cof4 + cof5 + cof6);
+
+    sep_xyzw6!(($a, $b, $c, $d) => let cof1_sum, cof2_sum, cof3_sum, cof4_sum, cof5_sum, cof6_sum =
+        paste!((($a.x * $b.y).abs() + ($a.y * $b.x).abs()) * ([<sq$c>] + [<sq$d>])));
+    let det_sum = (cof1_sum + cof2_sum + cof3_sum) + (cof4_sum + cof5_sum + cof6_sum);
+
+    if det.abs() >= det_sum * SIGN_DET_X_Y_X2Y2Z2_BOUND_A {
+        det
+    } else {
+        sign_det_x_y_x2y2z2_adapt(a, b, c, d)
+    }
+}
+
+fn sign_det_x_y_x2y2z2_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> f64 {
+    // Compute exact value at least for now
+    sep_xyzw!(($a, $b, $c, $d) => let sqa, sqb, sqc, sqd = (square($a.x) + square($a.y)).dynamic() + square($a.z).dynamic());
+    sep_xyzw6!(($a, $b, $c, $d) => let cof1, cof2, cof3, cof4, cof5, cof6 =
+        paste!((two_product($a.x, $b.y) - two_product($a.y, $b.x)).dynamic() * (&[<sq$c>] - &[<sq$d>])));
+    let det = (cof1 + cof2 + cof3) + (cof4 + cof5 + cof6);
     det.highest_magnitude()
 }
 
@@ -958,6 +1117,222 @@ mod test {
             let e = mtxs.choose(&mut rng).unwrap() * v + offset;
 
             check_in_sphere(a, b, c, d, e);
+        }
+    }
+
+    fn magnitude_cmp_2d_exact(a: Vec2, b: Vec2) -> Float {
+        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2;
+        macro_rules! f {
+            ($expr:expr) => {
+                Float::with_val(PREC, $expr)
+            };
+        }
+
+        let ax = f!(a.x);
+        let ay = f!(a.y);
+        let bx = f!(b.x);
+        let by = f!(b.y);
+        f!(&f!(&ax * &ax + &ay * &ay) - &f!(&bx * &bx + &by * &by))
+    }
+
+    fn check_magnitude_cmp_2d(a: Vec2, b: Vec2) {
+        let adapt = magnitude_cmp_2d(a, b);
+        let exact = magnitude_cmp_2d_exact(a, b);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_magnitude_cmp_2d_uniform_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..10000 {
+            let vals = dist.sample_iter(&mut rng).take(4).collect::<Vec<_>>();
+            let a = Vec2::new(vals[0], vals[1]);
+            let b = Vec2::new(vals[2], vals[3]);
+            check_magnitude_cmp_2d(a, b);
+        }
+    }
+
+    #[test]
+    fn test_magnitude_cmp_2d_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..10000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(4)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let a = Vec2::new(vals[0], vals[1]);
+            let b = Vec2::new(vals[2], vals[3]);
+            check_magnitude_cmp_2d(a, b);
+        }
+    }
+
+    #[test]
+    fn test_magnitude_cmp_2d_near_zero() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-1.0, 1.0);
+
+        for _ in 0..1000 {
+            let vals = UnitCircle.sample_iter(&mut rng).take(4).collect::<Vec<_>>();
+            let radius = dist.sample(&mut rng);
+
+            let a = Vec2::new(vals[0][0], vals[0][1]) * radius;
+            let b = Vec2::new(vals[1][0], vals[1][1]) * radius;
+
+            check_magnitude_cmp_2d(a, b);
+        }
+    }
+
+    #[test]
+    fn test_magnitude_cmp_2d_zero() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let abs = Uniform::new_inclusive(0, 4096);
+        let mtxs = [
+            Mtx2::new(1.0, 0.0, 0.0, 1.0),
+            Mtx2::new(-1.0, 0.0, 0.0, 1.0),
+            Mtx2::new(0.0, -1.0, 1.0, 0.0),
+            Mtx2::new(0.0, 1.0, 1.0, 0.0),
+            Mtx2::new(-1.0, 0.0, 0.0, -1.0),
+            Mtx2::new(1.0, 0.0, 0.0, -1.0),
+            Mtx2::new(0.0, 1.0, -1.0, 0.0),
+            Mtx2::new(0.0, -1.0, -1.0, 0.0),
+        ];
+
+        for _ in 0..1000 {
+            let x = abs.sample(&mut rng) as f64 / 4096.0;
+            let y = abs.sample(&mut rng) as f64 / 4096.0;
+            let v = Vec2::new(x, y);
+
+            let a = mtxs.choose(&mut rng).unwrap() * v;
+            let b = mtxs.choose(&mut rng).unwrap() * v;
+
+            check_magnitude_cmp_2d(a, b);
+        }
+    }
+
+    fn magnitude_cmp_3d_exact(a: Vec3, b: Vec3) -> Float {
+        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2;
+        macro_rules! f {
+            ($expr:expr) => {
+                Float::with_val(PREC, $expr)
+            };
+        }
+
+        let ax = f!(a.x);
+        let ay = f!(a.y);
+        let az = f!(a.z);
+        let bx = f!(b.x);
+        let by = f!(b.y);
+        let bz = f!(b.z);
+        f!(&f!(&f!(&ax * &ax + &ay * &ay) + &az * &az)
+            - &f!(&f!(&bx * &bx + &by * &by) + &bz * &bz))
+    }
+
+    fn check_magnitude_cmp_3d(a: Vec3, b: Vec3) {
+        let adapt = magnitude_cmp_3d(a, b);
+        let exact = magnitude_cmp_3d_exact(a, b);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_magnitude_cmp_3d_uniform_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..10000 {
+            let vals = dist.sample_iter(&mut rng).take(6).collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            check_magnitude_cmp_3d(a, b);
+        }
+    }
+
+    #[test]
+    fn test_magnitude_cmp_3d_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..10000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(6)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            check_magnitude_cmp_3d(a, b);
+        }
+    }
+
+    #[test]
+    fn test_magnitude_cmp_3d_near_zero() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-1.0, 1.0);
+
+        for _ in 0..1000 {
+            let vals = UnitSphere.sample_iter(&mut rng).take(4).collect::<Vec<_>>();
+            let radius = dist.sample(&mut rng);
+
+            let a = Vec3::new(vals[0][0], vals[0][1], vals[0][2]) * radius;
+            let b = Vec3::new(vals[1][0], vals[1][1], vals[1][2]) * radius;
+
+            check_magnitude_cmp_3d(a, b);
+        }
+    }
+
+    #[test]
+    fn test_magnitude_cmp_3d_zero() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let abs = Uniform::new_inclusive(0, 4096);
+        let flip = Mtx3::new(-1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+        let rot4 = Mtx3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
+        let rot3 = Mtx3::new(0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0);
+        let mut mtxs = vec![];
+
+        for i in 0..2 {
+            for j in 0..4 {
+                for k in 0..3 {
+                    mtxs.push(
+                        std::iter::repeat(rot3).take(k).product::<Mtx3>()
+                            * std::iter::repeat(rot4).take(j).product::<Mtx3>()
+                            * std::iter::repeat(flip).take(i).product::<Mtx3>(),
+                    );
+                }
+            }
+        }
+
+        for _ in 0..1000 {
+            let x = abs.sample(&mut rng) as f64 / 4096.0;
+            let y = abs.sample(&mut rng) as f64 / 4096.0;
+            let z = abs.sample(&mut rng) as f64 / 4096.0;
+            let v = Vec3::new(x, y, z);
+
+            let a = mtxs.choose(&mut rng).unwrap() * v;
+            let b = mtxs.choose(&mut rng).unwrap() * v;
+
+            check_magnitude_cmp_3d(a, b);
         }
     }
 }

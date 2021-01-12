@@ -11,7 +11,8 @@ extern crate paste;
 
 mod geo;
 
-pub use geo::{in_circle, in_sphere, orient_2d, orient_3d};
+pub use geo::{in_circle, in_sphere, magnitude_cmp_2d, magnitude_cmp_3d, orient_2d, orient_3d};
+pub use geo::{sign_det_x_x2y2, sign_det_x_x2y2z2, sign_det_x_y_x2y2z2};
 
 use generic_array::{ArrayLength, GenericArray};
 use std::fmt::Debug;
