@@ -1154,7 +1154,7 @@ mod test {
         let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
         let dist = Uniform::new(-10.0, 10.0);
 
-        for _ in 0..10000 {
+        for _ in 0..1000 {
             let vals = dist.sample_iter(&mut rng).take(4).collect::<Vec<_>>();
             let a = Vec2::new(vals[0], vals[1]);
             let b = Vec2::new(vals[2], vals[3]);
@@ -1168,7 +1168,7 @@ mod test {
         let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
         let dist = Uniform::new(-30.0, 30.0);
 
-        for _ in 0..10000 {
+        for _ in 0..1000 {
             let vals = dist
                 .sample_iter(&mut rng)
                 .take(4)
@@ -1260,7 +1260,7 @@ mod test {
         let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
         let dist = Uniform::new(-10.0, 10.0);
 
-        for _ in 0..10000 {
+        for _ in 0..1000 {
             let vals = dist.sample_iter(&mut rng).take(6).collect::<Vec<_>>();
             let a = Vec3::new(vals[0], vals[1], vals[2]);
             let b = Vec3::new(vals[3], vals[4], vals[5]);
@@ -1274,7 +1274,7 @@ mod test {
         let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
         let dist = Uniform::new(-30.0, 30.0);
 
-        for _ in 0..10000 {
+        for _ in 0..1000 {
             let vals = dist
                 .sample_iter(&mut rng)
                 .take(6)
@@ -1334,5 +1334,259 @@ mod test {
 
             check_magnitude_cmp_3d(a, b);
         }
+    }
+
+    fn sign_det_x_x2y2_exact(a: Vec2, b: Vec2, c: Vec2) -> Float {
+        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2;
+        macro_rules! f {
+            ($expr:expr) => {
+                Float::with_val(PREC, $expr)
+            };
+        }
+
+        let ax = f!(a.x);
+        let ay = f!(a.y);
+        let bx = f!(b.x);
+        let by = f!(b.y);
+        let cx = f!(c.x);
+        let cy = f!(c.y);
+        let sqa = f!(&ax * &ax + &ay * &ay);
+        let sqb = f!(&bx * &bx + &by * &by);
+        let sqc = f!(&cx * &cx + &cy * &cy);
+        let cof1 = f!(&sqa * f!(&cx - &bx));
+        let cof2 = f!(&sqb * f!(&ax - &cx));
+        let cof3 = f!(&sqc * f!(&bx - &ax));
+        f!(f!(&cof1 + &cof2) + &cof3)
+    }
+
+    fn check_sign_det_x_x2y2(a: Vec2, b: Vec2, c: Vec2) {
+        let adapt = sign_det_x_x2y2(a, b, c);
+        let exact = sign_det_x_x2y2_exact(a, b, c);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_sign_det_x_x2y2_uniform_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..1000 {
+            let vals = dist.sample_iter(&mut rng).take(6).collect::<Vec<_>>();
+            let a = Vec2::new(vals[0], vals[1]);
+            let b = Vec2::new(vals[2], vals[3]);
+            let c = Vec2::new(vals[4], vals[5]);
+            check_sign_det_x_x2y2(a, b, c);
+        }
+    }
+
+    #[test]
+    fn test_sign_det_x_x2y2_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..1000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(6)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let a = Vec2::new(vals[0], vals[1]);
+            let b = Vec2::new(vals[2], vals[3]);
+            let c = Vec2::new(vals[4], vals[5]);
+            check_sign_det_x_x2y2(a, b, c);
+        }
+    }
+
+    #[test]
+    fn test_sign_det_x_x2y2_zero() {
+        let a = Vec2::new(1.0, 0.0);
+        let b = Vec2::new(2.0, -1.0);
+        let c = Vec2::new(3.0, 0.0);
+        assert_eq!(sign_det_x_x2y2(a, b, c), 0.0);
+    }
+
+    fn sign_det_x_x2y2z2_exact(a: Vec3, b: Vec3, c: Vec3) -> Float {
+        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2;
+        macro_rules! f {
+            ($expr:expr) => {
+                Float::with_val(PREC, $expr)
+            };
+        }
+
+        let ax = f!(a.x);
+        let ay = f!(a.y);
+        let az = f!(a.z);
+        let bx = f!(b.x);
+        let by = f!(b.y);
+        let bz = f!(b.z);
+        let cx = f!(c.x);
+        let cy = f!(c.y);
+        let cz = f!(c.z);
+        let sqa = f!(&f!(&ax * &ax + &ay * &ay) + &f!(&az * &az));
+        let sqb = f!(&f!(&bx * &bx + &by * &by) + &f!(&bz * &bz));
+        let sqc = f!(&f!(&cx * &cx + &cy * &cy) + &f!(&cz * &cz));
+        let cof1 = f!(&sqa * f!(&cx - &bx));
+        let cof2 = f!(&sqb * f!(&ax - &cx));
+        let cof3 = f!(&sqc * f!(&bx - &ax));
+        f!(f!(&cof1 + &cof2) + &cof3)
+    }
+
+    fn check_sign_det_x_x2y2z2(a: Vec3, b: Vec3, c: Vec3) {
+        let adapt = sign_det_x_x2y2z2(a, b, c);
+        let exact = sign_det_x_x2y2z2_exact(a, b, c);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_sign_det_x_x2y2z2_uniform_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..1000 {
+            let vals = dist.sample_iter(&mut rng).take(9).collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            check_sign_det_x_x2y2z2(a, b, c);
+        }
+    }
+
+    #[test]
+    fn test_sign_det_x_x2y2z2_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..1000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(9)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            check_sign_det_x_x2y2z2(a, b, c);
+        }
+    }
+
+    #[test]
+    fn test_sign_det_x_x2y2z2_zero() {
+        let a = Vec3::new(1.0, 0.0, 4.0);
+        let b = Vec3::new(2.0, -3.0, 3.0);
+        let c = Vec3::new(4.0, -4.0, 0.0);
+        assert_eq!(sign_det_x_x2y2z2(a, b, c), 0.0);
+    }
+
+    fn sign_det_x_y_x2y2z2_exact(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> Float {
+        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2;
+        macro_rules! f {
+            ($expr:expr) => {
+                Float::with_val(PREC, $expr)
+            };
+        }
+
+        let ax = f!(a.x);
+        let ay = f!(a.y);
+        let az = f!(a.z);
+        let bx = f!(b.x);
+        let by = f!(b.y);
+        let bz = f!(b.z);
+        let cx = f!(c.x);
+        let cy = f!(c.y);
+        let cz = f!(c.z);
+        let dx = f!(d.x);
+        let dy = f!(d.y);
+        let dz = f!(d.z);
+        let sqa = f!(&f!(&ax * &ax + &ay * &ay) + &f!(&az * &az));
+        let sqb = f!(&f!(&bx * &bx + &by * &by) + &f!(&bz * &bz));
+        let sqc = f!(&f!(&cx * &cx + &cy * &cy) + &f!(&cz * &cz));
+        let sqd = f!(&f!(&dx * &dx + &dy * &dy) + &f!(&dz * &dz));
+        let cof1 = f!(&f!(&ax * &by - &bx * &ay) * &f!(&sqc - &sqd));
+        let cof2 = f!(&f!(&ax * &cy - &cx * &ay) * &f!(&sqd - &sqb));
+        let cof3 = f!(&f!(&ax * &dy - &dx * &ay) * &f!(&sqb - &sqc));
+        let cof4 = f!(&f!(&bx * &cy - &cx * &by) * &f!(&sqa - &sqd));
+        let cof5 = f!(&f!(&bx * &dy - &dx * &by) * &f!(&sqc - &sqa));
+        let cof6 = f!(&f!(&cx * &dy - &dx * &cy) * &f!(&sqa - &sqb));
+        f!(f!(&f!(&cof1 + &cof2) + &cof3) + f!(&f!(&cof4 + &cof5) + &cof6))
+    }
+
+    fn check_sign_det_x_y_x2y2z2(a: Vec3, b: Vec3, c: Vec3, d: Vec3) {
+        let adapt = sign_det_x_y_x2y2z2(a, b, c, d);
+        let exact = sign_det_x_y_x2y2z2_exact(a, b, c, d);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            d,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_sign_det_x_y_x2y2z2_uniform_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..1000 {
+            let vals = dist.sample_iter(&mut rng).take(12).collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            let d = Vec3::new(vals[9], vals[10], vals[11]);
+            check_sign_det_x_y_x2y2z2(a, b, c, d);
+        }
+    }
+
+    #[test]
+    fn test_sign_det_x_y_x2y2z2_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..1000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(12)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            let d = Vec3::new(vals[9], vals[10], vals[11]);
+            check_sign_det_x_y_x2y2z2(a, b, c, d);
+        }
+    }
+
+    #[test]
+    fn test_sign_det_x_y_x2y2z2_zero() {
+        let a = Vec3::new(1.0, 0.0, 4.0);
+        let b = Vec3::new(2.0, -3.0, 3.0);
+        let c = Vec3::new(4.0, -4.0, 0.0);
+        let d = Vec3::new(2.0, -3.0, -3.0);
+        assert_eq!(sign_det_x_y_x2y2z2(a, b, c, d), 0.0);
     }
 }
