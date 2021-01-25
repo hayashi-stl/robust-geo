@@ -33,6 +33,8 @@ const MAGNITUDE_CMP_2D_BOUND_A: f64 = (2.0 + 8.0 * EPSILON) * EPSILON;
 
 const MAGNITUDE_CMP_3D_BOUND_A: f64 = (3.0 + 12.0 * EPSILON) * EPSILON;
 
+const DISTANCE_CMP_3D_BOUND_A: f64 = (6.0 + 32.0 * EPSILON) * EPSILON;
+
 const SIGN_DET_X_X2Y2_BOUND_A: f64 = (5.0 + 32.0 * EPSILON) * EPSILON;
 
 const SIGN_DET_X_X2Y2Z2_BOUND_A: f64 = (6.0 + 32.0 * EPSILON) * EPSILON;
@@ -458,6 +460,32 @@ pub fn magnitude_cmp_3d(a: Vec3, b: Vec3) -> f64 {
 fn magnitude_cmp_3d_adapt(a: Vec3, b: Vec3) -> f64 {
     let sqa = (square(a.x) + square(a.y)).dynamic() + square(a.z).dynamic();
     let sqb = (square(b.x) + square(b.y)).dynamic() + square(b.z).dynamic();
+    (sqa - sqb).highest_magnitude()
+}
+
+/// Compares the distance of `a` and `b` to `c`
+/// and returns a positive number if `a`'s distance to `c` is greater,
+/// a negative number if `b`'s distance to `c` is greater,
+/// and 0 if their distances equal.
+pub fn distance_cmp_3d(a: Vec3, b: Vec3, c: Vec3) -> f64 {
+    let ac = a - c;
+    let bc = b - c;
+    let sqa = ac.x * ac.x + ac.y * ac.y + ac.z * ac.z;
+    let sqb = bc.x * bc.x + bc.y * bc.y + bc.z * bc.z;
+    let det = sqa - sqb;
+
+    if det.abs() >= (sqa + sqb) * DISTANCE_CMP_3D_BOUND_A {
+        det
+    } else {
+        distance_cmp_3d_adapt(a, b, c)
+    }
+}
+
+fn distance_cmp_3d_adapt(a: Vec3, b: Vec3, c: Vec3) -> f64 {
+    sep_xyz!(($x, $y, $z) => let ax, ay, az = two_sum(a.$x, -c.$x).dynamic());
+    sep_xyz!(($x, $y, $z) => let bx, by, bz = two_sum(b.$x, -c.$x).dynamic());
+    let sqa = &ax * &ax + &ay * &ay + &az * &az;
+    let sqb = &bx * &bx + &by * &by + &bz * &bz;
     (sqa - sqb).highest_magnitude()
 }
 
