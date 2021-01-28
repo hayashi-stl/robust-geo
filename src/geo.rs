@@ -41,6 +41,13 @@ const SIGN_DET_X_X2Y2Z2_BOUND_A: f64 = (6.0 + 32.0 * EPSILON) * EPSILON;
 
 const SIGN_DET_X_Y_X2Y2Z2_BOUND_A: f64 = (9.0 + 64.0 * EPSILON) * EPSILON;
 
+const SIGN_DET_X_Y_X2Y2Z2_PLUS_2X_DET_X_Y_Z_BOUND_A: f64 = (10.0 + 80.0 * EPSILON) * EPSILON;
+const SIGN_DET_X_X2Y2Z2_PLUS_2X_DET_X_Y_BOUND_A: f64 = (7.0 + 48.0 * EPSILON) * EPSILON;
+const SIGN_DET_X2Y2Z2_PLUS_2X_DET_X_BOUND_A: f64 = (4.0 + 24.0 * EPSILON) * EPSILON;
+
+const SIGN_DET_X_X2Y2_PLUS_2X_DET_X_Y_BOUND_A: f64 = (6.0 + 40.0 * EPSILON) * EPSILON;
+const SIGN_DET_X2Y2_PLUS_2X_DET_X_BOUND_A: f64 = (3.0 + 16.0 * EPSILON) * EPSILON;
+
 /// Calculates the orientation of points `a`, `b`, `c` in a plane.
 /// Returns a positive number if they define a left turn,
 /// a negative number if they define a right turn,
@@ -537,7 +544,7 @@ pub fn sign_det_x_x2y2z2(a: Vec3, b: Vec3, c: Vec3) -> f64 {
     sep_xyz!(($a, $b, $c) => let cof1, cof2, cof3 = paste!([<sq$a>] * ($c.x - $b.x)));
     let det = cof1 + cof2 + cof3;
 
-    sep_xyz!(($a, $b, $c) => let cof1_sum, cof2_sum, cof3_sum = paste!([<sq$a>] * ($c.x.abs() + $b.x.abs())));
+    sep_xyz!(($a, $b, $c) => let cof1_sum, cof2_sum, cof3_sum = paste!([<sq$a>] * ($c.x - $b.x).abs()));
     let det_sum = cof1_sum + cof2_sum + cof3_sum;
 
     if det.abs() >= det_sum * SIGN_DET_X_X2Y2Z2_BOUND_A {
@@ -590,6 +597,123 @@ fn sign_det_x_y_x2y2z2_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> f64 {
         paste!((two_product($a.x, $b.y) - two_product($a.y, $b.x)).dynamic() * (&[<sq$c>] - &[<sq$d>])));
     let det = (cof1 + cof2 + cof3) + (cof4 + cof5 + cof6);
     det.highest_magnitude()
+}
+
+/// Computes the following sum of determinants
+/// ```notrust
+/// │ a.x   a.y   a.x^2 + a.y^2 + a.z^2   1 │     │ i.x   i.y   i.z   1 │
+/// │ b.x   b.y   b.x^2 + b.y^2 + b.z^2   1 │ + 2u│ j.x   j.y   j.z   1 │
+/// │ c.x   c.y   c.x^2 + c.y^2 + c.z^2   1 │     │ k.x   k.y   k.z   1 │
+/// │ d.x   d.y   d.x^2 + d.y^2 + d.z^2   1 │     │ l.x   l.y   l.z   1 │
+/// ```
+/// and returns a number with the same sign as the sum,
+/// or 0 if the sum is 0
+pub fn sign_det_x_y_x2y2z2_plus_2x_det_x_y_z(a: Vec3, b: Vec3, c: Vec3, d: Vec3, u: f64, i: Vec3, j: Vec3, k: Vec3, l: Vec3) -> f64 {
+    sep_xyzw!(($a, $b, $c, $d) => let sqa, sqb, sqc, sqd = $a.x * $a.x + $a.y * $a.y + $a.z * $a.z);
+    sep_xyzw6!(($a, $b, $c, $d) => let cof1, cof2, cof3, cof4, cof5, cof6 =
+        paste!(($a.x * $b.y - $a.y * $b.x) * ([<sq$c>] - [<sq$d>])));
+    let det1 = (cof1 + cof2 + cof3) + (cof4 + cof5 + cof6);
+
+    sep_xyzw6!(($a, $b, $c, $d) => let cof1_sum, cof2_sum, cof3_sum, cof4_sum, cof5_sum, cof6_sum =
+        paste!((($a.x * $b.y).abs() + ($a.y * $b.x).abs()) * ([<sq$c>] + [<sq$d>])));
+    let det_sum1 = (cof1_sum + cof2_sum + cof3_sum) + (cof4_sum + cof5_sum + cof6_sum);
+
+    sep_xyzw6!(($i, $j, $k, $l) => let cof1, cof2, cof3, cof4, cof5, cof6 =
+        paste!(($i.x * $j.y - $i.y * $j.x) * ($k.z - $l.z)));
+    let det2 = ((cof1 + cof2 + cof3) + (cof4 + cof5 + cof6)) * u * 2.0;
+
+    sep_xyzw6!(($i, $j, $k, $l) => let cof1_sum, cof2_sum, cof3_sum, cof4_sum, cof5_sum, cof6_sum =
+        paste!((($i.x * $j.y).abs() + ($i.y * $j.x).abs()) * ($k.z - $l.z).abs()));
+    let det_sum2 = ((cof1_sum + cof2_sum + cof3_sum) + (cof4_sum + cof5_sum + cof6_sum)) * u.abs() * 2.0;
+
+    if (det1 + det2).abs() >= (det_sum1 + det_sum2) * SIGN_DET_X_Y_X2Y2Z2_PLUS_2X_DET_X_Y_Z_BOUND_A {
+        det1 + det2
+    } else {
+        sign_det_x_y_x2y2z2_plus_2x_det_x_y_z_adapt(a, b, c, d, u, i, j, k, l)
+    }
+}
+
+fn sign_det_x_y_x2y2z2_plus_2x_det_x_y_z_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3, u: f64, i: Vec3, j: Vec3, k: Vec3, l: Vec3) -> f64 {
+    // Compute exact value at least for now
+    sep_xyzw!(($a, $b, $c, $d) => let sqa, sqb, sqc, sqd = (square($a.x) + square($a.y)).dynamic() + square($a.z).dynamic());
+    sep_xyzw6!(($a, $b, $c, $d) => let cof1, cof2, cof3, cof4, cof5, cof6 =
+        paste!((two_product($a.x, $b.y) - two_product($a.y, $b.x)).dynamic() * (&[<sq$c>] - &[<sq$d>])));
+    let det1 = (cof1 + cof2 + cof3) + (cof4 + cof5 + cof6);
+
+    sep_xyzw6!(($i, $j, $k, $l) => let cof1, cof2, cof3, cof4, cof5, cof6 =
+        paste!((two_product($i.x, $j.y) - two_product($i.y, $j.x)).dynamic() * two_sum($k.z, -$l.z).dynamic()));
+    let det2 = ((cof1 + cof2 + cof3) + (cof4 + cof5 + cof6)).scale_expansion(u * 2.0);
+
+    (det1 + det2).highest_magnitude()
+}
+
+/// Computes the following sum of determinants. 
+/// ```notrust
+/// │ a.x   a.x^2 + a.y^2 + a.z^2   1 │     │ i.x   i.y   1 │
+/// │ b.x   b.x^2 + b.y^2 + b.z^2   1 │ + 2u│ j.x   j.y   1 │
+/// │ c.x   c.x^2 + c.y^2 + c.z^2   1 │     │ k.x   k.y   1 │
+/// ```
+/// and returns a number with the same sign as the sum,
+/// or 0 if the sum is 0
+pub fn sign_det_x_x2y2z2_plus_2x_det_x_y(a: Vec3, b: Vec3, c: Vec3, u: f64, i: Vec2, j: Vec2, k: Vec2) -> f64 {
+    sep_xyz!(($a, $b, $c) => let sqa, sqb, sqc = $a.x * $a.x + $a.y * $a.y + $a.z * $a.z);
+    sep_xyz!(($a, $b, $c) => let cof1, cof2, cof3 = paste!([<sq$a>] * ($c.x - $b.x)));
+    let det1 = cof1 + cof2 + cof3;
+
+    sep_xyz!(($a, $b, $c) => let cof1_sum, cof2_sum, cof3_sum = paste!([<sq$a>] * ($c.x - $b.x).abs()));
+    let det_sum1 = cof1_sum + cof2_sum + cof3_sum;
+
+    sep_xyz!(($i, $j, $k) => let cof1, cof2, cof3 = paste!($i.x * ($j.y - $k.y)));
+    let det2 = (cof1 + cof2 + cof3) * u * 2.0;
+
+    sep_xyz!(($i, $j, $k) => let cof1_sum, cof2_sum, cof3_sum = paste!($i.x.abs() * ($j.y - $k.y).abs()));
+    let det_sum2 = (cof1_sum + cof2_sum + cof3_sum) * u.abs() * 2.0;
+
+    if (det1 + det2).abs() >= (det_sum1 + det_sum2) * SIGN_DET_X_X2Y2Z2_PLUS_2X_DET_X_Y_BOUND_A {
+        det1 + det2
+    } else {
+        sign_det_x_x2y2z2_plus_2x_det_x_y_adapt(a, b, c, u, i, j, k)
+    }
+}
+
+fn sign_det_x_x2y2z2_plus_2x_det_x_y_adapt(a: Vec3, b: Vec3, c: Vec3, u: f64, i: Vec2, j: Vec2, k: Vec2) -> f64 {
+    // Compute exact value at least for now
+    sep_xyz!(($a, $b, $c) => let sqa, sqb, sqc = (square($a.x) + square($a.y)).dynamic() + square($a.z).dynamic());
+    sep_xyz!(($a, $b, $c) => let cof1, cof2, cof3 = paste!([<sq$a>] * two_sum($c.x, -$b.x).dynamic()));
+    let det1 = cof1 + cof2 + cof3;
+
+    sep_xyz!(($i, $j, $k) => let cof1, cof2, cof3 = paste!(two_sum($j.y, -$k.y).dynamic().scale_expansion($i.x)));
+    let det2 = (cof1 + cof2 + cof3).scale_expansion(2.0 * u);
+
+    (det1 + det2).highest_magnitude()
+}
+
+/// Computes the following sum of determinants. 
+/// ```notrust
+/// │ a.x^2 + a.y^2 + a.z^2   1 │ + 2u│ i   1 │
+/// │ b.x^2 + b.y^2 + b.z^2   1 │     │ j   1 │
+/// ```
+/// and returns a number with the same sign as the sum,
+/// or 0 if the sum is 0
+pub fn sign_det_x2y2z2_plus_2x_det_x(a: Vec3, b: Vec3, u: f64, i: f64, j: f64) -> f64 {
+    let sqa = a.x * a.x + a.y * a.y + a.z * a.z;
+    let sqb = b.x * b.x + b.y * b.y + b.z * b.z;
+    let det1 = sqa - sqb;
+    let det2 = (i - j) * u * 2.0;
+    let det_sum = sqa + sqb + det2.abs();
+
+    if (det1 + det2).abs() >= det_sum * SIGN_DET_X2Y2Z2_PLUS_2X_DET_X_BOUND_A {
+        det1 + det2
+    } else {
+        sign_det_x2y2z2_plus_2x_det_x_adapt(a, b, u, i, j)
+    }
+}
+
+fn sign_det_x2y2z2_plus_2x_det_x_adapt(a: Vec3, b: Vec3, u: f64, i: f64, j: f64) -> f64 {
+    let sqa = (square(a.x) + square(a.y)).dynamic() + square(a.z).dynamic();
+    let sqb = (square(b.x) + square(b.y)).dynamic() + square(b.z).dynamic();
+    let diff = two_sum(i, -j).scale_expansion(u * 2.0).dynamic();
+    (sqa - sqb + diff).highest_magnitude()
 }
 
 #[cfg(test)]
@@ -1365,7 +1489,7 @@ mod test {
     }
 
     fn sign_det_x_x2y2_exact(a: Vec2, b: Vec2, c: Vec2) -> Float {
-        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2;
+        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 1 + f64::MANTISSA_DIGITS + 3;
         macro_rules! f {
             ($expr:expr) => {
                 Float::with_val(PREC, $expr)
@@ -1394,6 +1518,19 @@ mod test {
             adapt.partial_cmp(&0.0),
             exact.partial_cmp(&0.0),
             "({}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            adapt,
+            exact
+        );
+
+        let adapt = sign_det_x_x2y2_adapt(a, b, c);
+        let exact = sign_det_x_x2y2_exact(a, b, c);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}) adapted gave wrong result: {} vs {}",
             a,
             b,
             c,
@@ -1444,7 +1581,7 @@ mod test {
     }
 
     fn sign_det_x_x2y2z2_exact(a: Vec3, b: Vec3, c: Vec3) -> Float {
-        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2;
+        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2 + f64::MANTISSA_DIGITS + 3;
         macro_rules! f {
             ($expr:expr) => {
                 Float::with_val(PREC, $expr)
@@ -1476,6 +1613,19 @@ mod test {
             adapt.partial_cmp(&0.0),
             exact.partial_cmp(&0.0),
             "({}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            adapt,
+            exact
+        );
+
+        let adapt = sign_det_x_x2y2z2_adapt(a, b, c);
+        let exact = sign_det_x_x2y2z2_exact(a, b, c);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}) adapted gave wrong result: {} vs {}",
             a,
             b,
             c,
@@ -1526,7 +1676,7 @@ mod test {
     }
 
     fn sign_det_x_y_x2y2z2_exact(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> Float {
-        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2;
+        const PREC: u32 = f64::MANTISSA_DIGITS * 2 + 2 + f64::MANTISSA_DIGITS * 2 + 4;
         macro_rules! f {
             ($expr:expr) => {
                 Float::with_val(PREC, $expr)
@@ -1565,6 +1715,20 @@ mod test {
             adapt.partial_cmp(&0.0),
             exact.partial_cmp(&0.0),
             "({}, {}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            d,
+            adapt,
+            exact
+        );
+
+        let adapt = sign_det_x_y_x2y2z2_adapt(a, b, c, d);
+        let exact = sign_det_x_y_x2y2z2_exact(a, b, c, d);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}) adapted gave wrong result: {} vs {}",
             a,
             b,
             c,
@@ -1616,5 +1780,267 @@ mod test {
         let c = Vec3::new(4.0, -4.0, 0.0);
         let d = Vec3::new(2.0, -3.0, -3.0);
         assert_eq!(sign_det_x_y_x2y2z2(a, b, c, d), 0.0);
+    }
+
+    fn sign_det_x_y_x2y2z2_plus_2x_det_x_y_z_exact(a: Vec3, b: Vec3, c: Vec3, d: Vec3, u: f64, i: Vec3, j: Vec3, k: Vec3, l: Vec3) -> Float {
+        const PREC: u32 = 1000; // lazy; this should be enough
+        macro_rules! f {
+            ($expr:expr) => {
+                Float::with_val(PREC, $expr)
+            };
+        }
+        f!(&sign_det_x_y_x2y2z2_exact(a, b, c, d) + &f!(2.0 * u) * &orient_3d_exact(i, j, k, l))
+    }
+
+    fn check_sign_det_x_y_x2y2z2_plus_2x_det_x_y_z(a: Vec3, b: Vec3, c: Vec3, d: Vec3, u: f64, i: Vec3, j: Vec3, k: Vec3, l: Vec3) {
+        let adapt = sign_det_x_y_x2y2z2_plus_2x_det_x_y_z(a, b, c, d, u, i, j, k, l);
+        let exact = sign_det_x_y_x2y2z2_plus_2x_det_x_y_z_exact(a, b, c, d, u, i, j, k, l);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}, {}, {}, {}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            d,
+            u,
+            i,
+            j,
+            k,
+            l,
+            adapt,
+            exact
+        );
+
+        let adapt = sign_det_x_y_x2y2z2_plus_2x_det_x_y_z_adapt(a, b, c, d, u, i, j, k, l);
+        let exact = sign_det_x_y_x2y2z2_plus_2x_det_x_y_z_exact(a, b, c, d, u, i, j, k, l);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}, {}, {}, {}, {}, {}) adapted gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            d,
+            u,
+            i,
+            j,
+            k,
+            l,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_sign_det_x_y_x2y2z2_plus_2x_det_x_y_z_uniform_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..1000 {
+            let vals = dist.sample_iter(&mut rng).take(25).collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            let d = Vec3::new(vals[9], vals[10], vals[11]);
+            let u = vals[12];
+            let i = Vec3::new(vals[13], vals[14], vals[15]);
+            let j = Vec3::new(vals[16], vals[17], vals[18]);
+            let k = Vec3::new(vals[19], vals[20], vals[21]);
+            let l = Vec3::new(vals[22], vals[23], vals[24]);
+            check_sign_det_x_y_x2y2z2_plus_2x_det_x_y_z(a, b, c, d, u, i, j, k, l);
+        }
+    }
+
+    #[test]
+    fn test_sign_det_x_y_x2y2z2_plus_2x_det_x_y_z_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..1000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(25)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            let d = Vec3::new(vals[9], vals[10], vals[11]);
+            let u = vals[12];
+            let i = Vec3::new(vals[13], vals[14], vals[15]);
+            let j = Vec3::new(vals[16], vals[17], vals[18]);
+            let k = Vec3::new(vals[19], vals[20], vals[21]);
+            let l = Vec3::new(vals[22], vals[23], vals[24]);
+            check_sign_det_x_y_x2y2z2_plus_2x_det_x_y_z(a, b, c, d, u, i, j, k, l);
+        }
+    }
+
+    fn sign_det_x_x2y2z2_plus_2x_det_x_y_exact(a: Vec3, b: Vec3, c: Vec3, u: f64, i: Vec2, j: Vec2, k: Vec2) -> Float {
+        const PREC: u32 = 1000; // lazy; this should be enough
+        macro_rules! f {
+            ($expr:expr) => {
+                Float::with_val(PREC, $expr)
+            };
+        }
+        f!(&sign_det_x_x2y2z2_exact(a, b, c) + &f!(2.0 * u) * &orient_2d_exact(i, j, k))
+    }
+
+    fn check_sign_det_x_x2y2z2_plus_2x_det_x_y(a: Vec3, b: Vec3, c: Vec3, u: f64, i: Vec2, j: Vec2, k: Vec2) {
+        let adapt = sign_det_x_x2y2z2_plus_2x_det_x_y(a, b, c, u, i, j, k);
+        let exact = sign_det_x_x2y2z2_plus_2x_det_x_y_exact(a, b, c, u, i, j, k);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}, {}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            u,
+            i,
+            j,
+            k,
+            adapt,
+            exact
+        );
+
+        let adapt = sign_det_x_x2y2z2_plus_2x_det_x_y_adapt(a, b, c, u, i, j, k);
+        let exact = sign_det_x_x2y2z2_plus_2x_det_x_y_exact(a, b, c, u, i, j, k);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}, {}, {}, {}) adapted gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            u,
+            i,
+            j,
+            k,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_sign_det_x_x2y2z2_plus_2x_det_x_y_uniform_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..1000 {
+            let vals = dist.sample_iter(&mut rng).take(16).collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            let u = vals[9];
+            let i = Vec2::new(vals[10], vals[11]);
+            let j = Vec2::new(vals[12], vals[13]);
+            let k = Vec2::new(vals[14], vals[15]);
+            check_sign_det_x_x2y2z2_plus_2x_det_x_y(a, b, c, u, i, j, k);
+        }
+    }
+
+    #[test]
+    fn test_sign_det_x_x2y2z2_plus_2x_det_x_y_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..1000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(16)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let c = Vec3::new(vals[6], vals[7], vals[8]);
+            let u = vals[9];
+            let i = Vec2::new(vals[10], vals[11]);
+            let j = Vec2::new(vals[12], vals[13]);
+            let k = Vec2::new(vals[14], vals[15]);
+            check_sign_det_x_x2y2z2_plus_2x_det_x_y(a, b, c, u, i, j, k);
+        }
+    }
+
+    fn sign_det_x2y2z2_plus_2x_det_x_exact(a: Vec3, b: Vec3, u: f64, i: f64, j: f64) -> Float {
+        const PREC: u32 = 1000; // lazy; this should be enough
+        macro_rules! f {
+            ($expr:expr) => {
+                Float::with_val(PREC, $expr)
+            };
+        }
+        f!(&magnitude_cmp_3d_exact(a, b) + &f!(2.0 * u) * &f!(&f!(i) - &f!(j)))
+    }
+
+    fn check_sign_det_x2y2z2_plus_2x_det_x(a: Vec3, b: Vec3, u: f64, i: f64, j: f64) {
+        let adapt = sign_det_x2y2z2_plus_2x_det_x(a, b, u, i, j);
+        let exact = sign_det_x2y2z2_plus_2x_det_x_exact(a, b, u, i, j);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            u,
+            i,
+            j,
+            adapt,
+            exact
+        );
+
+        let adapt = sign_det_x2y2z2_plus_2x_det_x_adapt(a, b, u, i, j);
+        let exact = sign_det_x2y2z2_plus_2x_det_x_exact(a, b, u, i, j);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}, {}) adapted gave wrong result: {} vs {}",
+            a,
+            b,
+            u,
+            i,
+            j,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_sign_det_x2y2z2_plus_2x_det_x_uniform_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..1000 {
+            let vals = dist.sample_iter(&mut rng).take(9).collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let u = vals[6];
+            let i = vals[7];
+            let j = vals[8];
+            check_sign_det_x2y2z2_plus_2x_det_x(a, b, u, i, j);
+        }
+    }
+
+    #[test]
+    fn test_sign_det_x2y2z2_plus_2x_det_x_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..1000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(16)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let vals = dist.sample_iter(&mut rng).take(9).collect::<Vec<_>>();
+            let a = Vec3::new(vals[0], vals[1], vals[2]);
+            let b = Vec3::new(vals[3], vals[4], vals[5]);
+            let u = vals[6];
+            let i = vals[7];
+            let j = vals[8];
+            check_sign_det_x2y2z2_plus_2x_det_x(a, b, u, i, j);
+        }
     }
 }
