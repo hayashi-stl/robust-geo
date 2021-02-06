@@ -1,7 +1,7 @@
 [package]
 name = "robust-geo"
 description = "Implementation of floating-point expansions and geometric tests (https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf)"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Joshua Ani <josh4820@gmail.com>"]
 edition = "2018"
 license = "MIT"

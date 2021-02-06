@@ -49,7 +49,8 @@ const SIGN_DET_X_X2Y2_PLUS_2X_DET_X_Y_BOUND_A: f64 = (6.0 + 40.0 * EPSILON) * EP
 const SIGN_DET_X2Y2_PLUS_2X_DET_X_BOUND_A: f64 = (3.0 + 16.0 * EPSILON) * EPSILON;
 
 /// Calculates the orientation of points `a`, `b`, `c` in a plane.
-/// Returns a positive number if they define a left turn,
+/// Returns twice the area of the triangle formed by `a`, `b`, and `c`,
+/// which is a positive number if they define a left turn,
 /// a negative number if they define a right turn,
 /// and 0 if they are collinear.
 pub fn orient_2d(a: Vec2, b: Vec2, c: Vec2) -> f64 {
@@ -95,7 +96,7 @@ fn orient_2d_adapt(a: Vec2, b: Vec2, c: Vec2, det_sum: f64) -> f64 {
     let det_m2 = (two_product(ax[1], by[0]) - two_product(ay[1], bx[0])).dynamic();
     let det_lo = (two_product(ax[0], by[0]) - two_product(ay[0], bx[0])).dynamic();
     let det = (det_hi + det_m1) + (det_m2 + det_lo);
-    det.highest_magnitude()
+    det.approximate()
 }
 
 macro_rules! sep_let {
@@ -227,7 +228,8 @@ macro_rules! sep_5 {
 //}
 
 /// Calculates the orientation of points `a`, `b`, `c`, `d` in a space.
-/// Returns a positive number if `b`→`c`→`d` defines a left turn when looked at from `a`,
+/// Returns 6 times the volume of the tetrahedron formed by `a`, `b`, `c`, `d`,
+/// which is a positive number if `b`→`c`→`d` defines a left turn when looked at from `a`,
 /// a negative number if they define a right turn,
 /// and 0 if `a`, `b`, `c`, `d` are coplanar.
 pub fn orient_3d(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> f64 {
@@ -284,7 +286,7 @@ fn orient_3d_adapt(a: Vec3, b: Vec3, c: Vec3, d: Vec3, det_sum: f64) -> f64 {
     let det_lo =
         cof1.scale_expansion(az[0]) + cof2.scale_expansion(ax[0]) + cof3.scale_expansion(ay[0]);
     let det = (det_hi + det_m1) + (det_m2 + det_lo);
-    det.highest_magnitude()
+    det.approximate()
 }
 
 /// Returns a positive number if `d` is inside the oriented circle that goes through `a`, `b`, `c`,
