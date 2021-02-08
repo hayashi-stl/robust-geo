@@ -99,6 +99,59 @@ fn orient_2d_adapt(a: Vec2, b: Vec2, c: Vec2, det_sum: f64) -> f64 {
     det.approximate()
 }
 
+/// Computes the determinant of the following matrix
+/// ```notrust
+/// ┌─                     ─┐
+/// │ b.x - a.x   b.y - a.y │
+/// │ d.x - c.x   d.y - c.y │
+/// └─                     ─┘
+/// ```
+pub fn cross_2d(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> f64 {
+    let diag1 = (b.x - a.x) * (d.y - c.y);
+    let diag2 = (b.y - a.y) * (d.x - c.x);
+    let det = diag1 - diag2;
+    let det_sum = diag1.abs() + diag2.abs();
+
+    if det.abs() >= det_sum * ORIENT_2D_BOUND_A {
+        det
+    } else {
+        cross_2d_adapt(a, b, c, d, det_sum)
+    }
+}
+
+fn cross_2d_adapt(a: Vec2, b: Vec2, c: Vec2, d: Vec2, det_sum: f64) -> f64 {
+    let diag1 = two_product(b.x - a.x, d.y - c.y);
+    let diag2 = two_product(b.y - a.y, d.x - c.x);
+    let det_hi = diag1 - diag2;
+    let det_approx = det_hi.approximate();
+
+    if det_approx.abs() >= det_sum * ORIENT_2D_BOUND_B {
+        return det_approx;
+    }
+
+    // Calculate correction factor, but don't go for the full exact value yet
+    let abx = two_sum(b.x, -a.x);
+    let aby = two_sum(b.y, -a.y);
+    let cdx = two_sum(d.x, -c.x);
+    let cdy = two_sum(d.y, -c.y);
+
+    let det_mid1 = abx[0] * cdy[1] - aby[0] * cdx[1];
+    let det_mid2 = abx[1] * cdy[0] - aby[1] * cdx[0];
+    let det = det_mid1 + det_mid2 + det_approx;
+
+    if det.abs() >= ORIENT_2D_BOUND_C1 * det_approx.abs() + ORIENT_2D_BOUND_C2 * det_sum {
+        return det;
+    }
+
+    // Determinant is likely 0; go for exact value
+    let det_hi = det_hi.dynamic();
+    let det_m1 = (two_product(abx[0], cdy[1]) - two_product(aby[0], cdx[1])).dynamic();
+    let det_m2 = (two_product(abx[1], cdy[0]) - two_product(aby[1], cdx[0])).dynamic();
+    let det_lo = (two_product(abx[0], cdy[0]) - two_product(aby[0], cdx[0])).dynamic();
+    let det = (det_hi + det_m1) + (det_m2 + det_lo);
+    det.approximate()
+}
+
 macro_rules! sep_let {
     (($($d:tt $var:ident),*) => let $($name:ident : [$($vals:tt)*]),* $(,)? = $($expr:tt)*) => {
         macro_rules! __mac {
@@ -912,6 +965,121 @@ mod test {
             let c = a + (b - a) * (fac as f64) / 16.0;
 
             check_orient_2d(a, b, c);
+        }
+    }
+
+    fn cross_2d_exact(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> Float {
+        const PREC: u32 = (f64::MANTISSA_DIGITS + 1) * 2 + 1;
+        let abx = Float::with_val(
+            PREC,
+            &Float::with_val(PREC, b.x) - &Float::with_val(PREC, a.x),
+        );
+        let aby = Float::with_val(
+            PREC,
+            &Float::with_val(PREC, b.y) - &Float::with_val(PREC, a.y),
+        );
+        let cdx = Float::with_val(
+            PREC,
+            &Float::with_val(PREC, d.x) - &Float::with_val(PREC, c.x),
+        );
+        let cdy = Float::with_val(
+            PREC,
+            &Float::with_val(PREC, d.y) - &Float::with_val(PREC, c.y),
+        );
+        Float::with_val(PREC, &abx * &cdy - &aby * &cdx)
+    }
+
+    fn check_cross_2d(a: Vec2, b: Vec2, c: Vec2, d: Vec2,) {
+        let adapt = cross_2d(a, b, c, d);
+        let exact = cross_2d_exact(a, b, c, d);
+        assert_eq!(
+            adapt.partial_cmp(&0.0),
+            exact.partial_cmp(&0.0),
+            "({}, {}, {}, {}) gave wrong result: {} vs {}",
+            a,
+            b,
+            c,
+            d,
+            adapt,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_cross_2d_uniform_random() {
+        // Deterministic, portable RNG
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-10.0, 10.0);
+
+        for _ in 0..10000 {
+            let vals = dist.sample_iter(&mut rng).take(8).collect::<Vec<_>>();
+            let a = Vec2::new(vals[0], vals[1]);
+            let b = Vec2::new(vals[2], vals[3]);
+            let c = Vec2::new(vals[4], vals[5]);
+            let d = Vec2::new(vals[6], vals[7]);
+            check_cross_2d(a, b, c, d);
+        }
+    }
+
+    #[test]
+    fn test_cross_2d_geometric_random() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let mut rng2 = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-30.0, 30.0);
+
+        for _ in 0..10000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(8)
+                .map(|x: f64| if rng2.gen() { -1.0 } else { 1.0 } * x.exp2())
+                .collect::<Vec<_>>();
+            let a = Vec2::new(vals[0], vals[1]);
+            let b = Vec2::new(vals[2], vals[3]);
+            let c = Vec2::new(vals[4], vals[5]);
+            let d = Vec2::new(vals[6], vals[7]);
+            check_cross_2d(a, b, c, d);
+        }
+    }
+
+    #[test]
+    fn test_cross_2d_near_parallel() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new(-1.0, 1.0);
+        let fac_dist = Uniform::new(-1.0, 2.0);
+
+        for _ in 0..10000 {
+            let vals = dist.sample_iter(&mut rng).take(6).collect::<Vec<_>>();
+            let a = Vec2::new(vals[0], vals[1]);
+            let b = Vec2::new(vals[2], vals[3]);
+            let c = Vec2::new(vals[4], vals[5]);
+
+            let fac = fac_dist.sample(&mut rng);
+            let d = c + (b - a) * fac;
+
+            check_cross_2d(a, b, c, d);
+        }
+    }
+
+    #[test]
+    fn test_cross_2d_collinear() {
+        let mut rng = Pcg64::new(PCG_STATE, PCG_STREAM);
+        let dist = Uniform::new_inclusive(-4096, 4096);
+        let fac_dist = Uniform::new_inclusive(-4095, 4096);
+
+        for _ in 0..10000 {
+            let vals = dist
+                .sample_iter(&mut rng)
+                .take(6)
+                .map(|x| (x as f64) / 4096.0)
+                .collect::<Vec<_>>();
+            let a = Vec2::new(vals[0], vals[1]);
+            let b = Vec2::new(vals[2], vals[3]);
+            let c = Vec2::new(vals[4], vals[5]);
+
+            let fac = fac_dist.sample(&mut rng);
+            let d = c + (b - a) * (fac as f64) / 16.0;
+
+            check_cross_2d(a, b, c, d);
         }
     }
 

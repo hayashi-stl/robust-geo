@@ -13,7 +13,7 @@ mod geo;
 
 pub use geo::{in_circle, in_sphere, magnitude_cmp_2d, magnitude_cmp_3d, orient_2d, orient_3d};
 pub use geo::{sign_det_x_x2y2, sign_det_x_x2y2z2, sign_det_x_y_x2y2z2};
-pub use geo::{sign_det_x_y_x2y2z2_plus_2x_det_x_y_z};
+pub use geo::{sign_det_x_y_x2y2z2_plus_2x_det_x_y_z, cross_2d};
 pub use geo::{sign_det_x_x2y2z2_plus_2x_det_x_y, sign_det_x2y2z2_plus_2x_det_x};
 pub use geo::{sign_det_x_x2y2_plus_2x_det_x_y, sign_det_x2y2_plus_2x_det_x};
 
